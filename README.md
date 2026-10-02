@@ -2,9 +2,18 @@
 
 Paste a model response and see every URL your renderer would silently GET, every cell a spreadsheet would run as a formula, and every terminal escape that overwrites what you read.
 
-## Live demo
+**Live demo:** https://0xelitesystem.github.io/llm-output-sink-scanner/
 
-https://0xelitesystem.github.io/llm-output-sink-scanner/
+## Use
+
+1. Paste the raw model response (assistant message, tool result or agent transcript) into the first box, or press **Load sample**.
+2. Under **Declare the sinks**, tick where that text goes: rendered as HTML, written to CSV or a spreadsheet, or printed to a terminal. Optionally list allowlisted hosts for the render sink.
+3. Press **Scan output**.
+4. Read the findings, grouped by sink.
+
+## Why this exists
+
+LLM output gets rendered, exported and printed by code that trusts it. A markdown image can send data to an outside host the moment a chat bubble renders, a cell that starts with `=` can run as a formula, and a terminal escape can rewrite a line you already read. This tool checks a response against those sinks before your app passes it on. It is one HTML file that runs in your browser, with no tracking and no server, under the MIT license.
 
 ## Features
 
@@ -168,6 +177,21 @@ the machine, and the whole page works offline once loaded.
 
 The core analysis functions are pure: they take a string and a config object and return a plain
 result object, with no DOM access, so you can lift them out of the file and run them in Node.
+
+The only thing written to storage is your light or dark theme choice, saved in `localStorage` under the key `losk.theme`. The source links on the page go to external sites only when you click them.
+
+## Run locally
+
+```bash
+git clone https://github.com/0xelitesystem/llm-output-sink-scanner
+cd llm-output-sink-scanner
+```
+
+Open `index.html` in any modern browser. Or serve the folder with `python -m http.server 8000` and visit http://localhost:8000/.
+
+## Build
+
+No build step. The whole tool is one `index.html` file with its CSS and JavaScript inline, and nothing to install.
 
 ## License
 
